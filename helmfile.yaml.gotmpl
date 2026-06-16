@@ -30,20 +30,10 @@ releases:
       - karpenter/values.yaml.gotmpl
 
     hooks:
-      # Apply CRDs before the main release so EC2NodeClass / NodePool are available
-      - events: ["presync"]
-        command: kubectl
-        args:
-          - apply
-          - -f
-          - https://raw.githubusercontent.com/aws/karpenter/v{{ .Values.karpenter_version }}/pkg/apis/crds/karpenter.sh_nodepools.yaml
-          - -f
-          - https://raw.githubusercontent.com/aws/karpenter/v{{ .Values.karpenter_version }}/pkg/apis/crds/karpenter.sh_nodeclaims.yaml
-          - -f
-          - https://raw.githubusercontent.com/aws/karpenter/v{{ .Values.karpenter_version }}/pkg/apis/crds/karpenter.k8s.aws_ec2nodeclasses.yaml
-
-      # Apply EC2NodeClass and NodePool after the chart is running
+      # Karpenter v1.x bundles CRDs inside the Helm chart — no presync CRD step needed.
+      # Apply EC2NodeClass and NodePool after the chart is running.
       - events: ["postsync"]
+        showlogs: true
         command: kubectl
         args:
           - apply
