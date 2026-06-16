@@ -16,4 +16,4 @@ environments:
 ---
 
 helmfiles:
-  - path: karpenter/helmfile.yaml
+  - path: karpenter/helmfile.yaml.gotmpl

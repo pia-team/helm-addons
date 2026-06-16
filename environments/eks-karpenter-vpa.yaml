@@ -17,6 +17,8 @@ aws_region: eu-west-1
 karpenter_version: "1.5.0"  # https://github.com/aws/karpenter/releases
 
 # Populated after running karpenter/iam/ Terraform
-karpenter_controller_role_arn: ""   # arn:aws:iam::<account>:role/eks-karpenter-vpa-karpenter-controller
-karpenter_interruption_queue_name: eks-karpenter-vpa-karpenter
-karpenter_node_role_name: eks-karpenter-vpa-karpenter-node
+karpenter_controller_role_arn: "arn:aws:iam::187751842432:role/eks-karpenter-vpa-karpenter-controller"
+karpenter_interruption_queue_name: "eks-karpenter-vpa-karpenter"
+karpenter_interruption_queue_url: "https://sqs.eu-west-1.amazonaws.com/187751842432/eks-karpenter-vpa-karpenter"
+karpenter_node_role_arn: "arn:aws:iam::187751842432:role/eks-karpenter-vpa-karpenter-node"
+karpenter_node_role_name: "eks-karpenter-vpa-karpenter-node"
