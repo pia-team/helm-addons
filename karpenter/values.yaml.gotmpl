@@ -22,7 +22,8 @@ tolerations:
   - key: CriticalAddonsOnly
     operator: Exists
 
-# Two replicas for HA — both land on managed nodes via the nodeSelector above.
-replicas: 2
+# 1 replica while the cluster has a single managed node.
+# Increase to 2 once a second node joins (requires pod anti-affinity to spread across nodes).
+replicas: 1
 
 logLevel: info

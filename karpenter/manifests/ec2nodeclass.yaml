@@ -17,10 +17,13 @@ spec:
   # Karpenter discovers subnets and security groups via tags.
   # The terraform-aws-modules/eks module sets kubernetes.io/cluster/<name>=owned
   # on the node security group and the EKS-tagged subnets automatically.
+  # Subnets are tagged with karpenter.sh/discovery=<cluster-name> via Terraform
+  # (clusters/eks-karpenter-vpa/main.tf → vpc.private_subnet_tags).
   subnetSelectorTerms:
     - tags:
-        kubernetes.io/cluster/eks-karpenter-vpa: owned
+        karpenter.sh/discovery: eks-karpenter-vpa
 
+  # Security group is discovered via the cluster-owned tag set by EKS itself.
   securityGroupSelectorTerms:
     - tags:
         kubernetes.io/cluster/eks-karpenter-vpa: owned
