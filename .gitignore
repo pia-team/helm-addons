@@ -1,0 +1,17 @@
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+*.tfvars
+!example.tfvars
+.terraform.lock.hcl
+
+# Helmfile
+charts/
+.helmfile/
+
+# Secrets / local overrides
+*.secret.yaml
+*.local.yaml
+secrets/

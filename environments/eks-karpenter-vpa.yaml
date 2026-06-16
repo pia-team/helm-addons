@@ -1,0 +1,22 @@
+# Cluster-specific values for eks-karpenter-vpa.
+#
+# Populate the empty fields from Terraform outputs after applying the cluster:
+#   cd ../../terraform/clusters/eks-karpenter-vpa
+#   terraform output cluster_endpoint
+#   terraform output oidc_provider_url
+#
+# Then populate karpenter_controller_role_arn and karpenter_node_role_name
+# after applying karpenter/iam/:
+#   terraform -chdir=karpenter/iam output karpenter_controller_role_arn
+#   terraform -chdir=karpenter/iam output karpenter_node_role_name
+
+cluster_name: eks-karpenter-vpa
+cluster_endpoint: ""        # e.g. https://XXXXXX.gr7.eu-west-1.eks.amazonaws.com
+aws_region: eu-west-1
+
+karpenter_version: "1.5.0"  # https://github.com/aws/karpenter/releases
+
+# Populated after running karpenter/iam/ Terraform
+karpenter_controller_role_arn: ""   # arn:aws:iam::<account>:role/eks-karpenter-vpa-karpenter-controller
+karpenter_interruption_queue_name: eks-karpenter-vpa-karpenter
+karpenter_node_role_name: eks-karpenter-vpa-karpenter-node

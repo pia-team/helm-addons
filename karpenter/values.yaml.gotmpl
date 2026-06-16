@@ -1,0 +1,22 @@
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: {{ .Values.karpenter_controller_role_arn }}
+
+settings:
+  clusterName: {{ .Values.cluster_name }}
+  clusterEndpoint: {{ .Values.cluster_endpoint }}
+  interruptionQueue: {{ .Values.karpenter_interruption_queue_name }}
+
+# Keep Karpenter controller on the managed (bootstrap) node group so it is
+# available before any Karpenter-provisioned nodes exist.
+nodeSelector:
+  eks.amazonaws.com/nodegroup: node-group
+
+tolerations:
+  - key: CriticalAddonsOnly
+    operator: Exists
+
+# Two replicas for HA — both land on managed nodes via the nodeSelector above.
+replicas: 2
+
+logLevel: info

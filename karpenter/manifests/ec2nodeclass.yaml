@@ -1,0 +1,27 @@
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: default
+spec:
+  # AL2023 is the recommended AMI family for new clusters (EKS 1.29+).
+  amiFamily: AL2023
+
+  # The IAM role that Karpenter-provisioned nodes will assume.
+  # Must match karpenter_node_role_name from karpenter/iam/ Terraform output.
+  role: eks-karpenter-vpa-karpenter-node
+
+  # Karpenter discovers subnets and security groups via tags.
+  # The terraform-aws-modules/eks module sets kubernetes.io/cluster/<name>=owned
+  # on the node security group and the EKS-tagged subnets automatically.
+  subnetSelectorTerms:
+    - tags:
+        kubernetes.io/cluster/eks-karpenter-vpa: owned
+
+  securityGroupSelectorTerms:
+    - tags:
+        kubernetes.io/cluster/eks-karpenter-vpa: owned
+
+  # Tag every instance Karpenter launches so the controller policy conditions work.
+  tags:
+    kubernetes.io/cluster/eks-karpenter-vpa: owned
+    karpenter.sh/discovery: eks-karpenter-vpa
