@@ -1,0 +1,40 @@
+recommender:
+  enabled: true
+  # Pin to managed nodes so the recommender is available before Karpenter
+  # provisions any nodes.
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: eks.amazonaws.com/nodegroup
+                operator: Exists
+
+updater:
+  enabled: true
+  extraArgs:
+    # Allow the updater to act on single-replica Deployments.
+    # Without this flag the updater skips anything with fewer than 2 replicas.
+    min-replicas: "{{ .Values.vpa_min_replicas }}"
+    # Enable in-place pod resource resize (K8s 1.27+, graduated in 1.33).
+    # The updater will attempt to resize running containers before evicting.
+    feature-gates: "InPlaceOrRecreate=true"
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: eks.amazonaws.com/nodegroup
+                operator: Exists
+
+admissionController:
+  enabled: true
+  extraArgs:
+    feature-gates: "InPlaceOrRecreate=true"
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: eks.amazonaws.com/nodegroup
+                operator: Exists

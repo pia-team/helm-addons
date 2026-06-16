@@ -46,12 +46,14 @@ spec:
       # How long a node may stay empty before Karpenter removes it.
       expireAfter: Never
 
-  # Safety cap — prevents runaway scaling during testing.
+  # Safety cap — keeps the dev cluster small and cheap.
   limits:
-    cpu: "50"
-    memory: 200Gi
+    cpu: "20"
+    memory: 80Gi
 
   disruption:
-    # Remove nodes that are empty or can be bin-packed onto fewer nodes.
+    # Remove underutilized nodes after 5 minutes (delayed shrink to prevent
+    # flapping when VPA is adjusting requests up and down).
+    # Fast scale-up still happens immediately whenever pods are pending.
     consolidationPolicy: WhenEmptyOrUnderutilized
-    consolidateAfter: 1m
+    consolidateAfter: 5m

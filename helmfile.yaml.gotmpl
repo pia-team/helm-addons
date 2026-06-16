@@ -6,12 +6,14 @@
 #   helmfile -e <environment> destroy       # uninstall
 #
 # Environments map 1-to-1 with EKS clusters.
-# Add a new environment entry + environments/<cluster>.yaml to reuse on any cluster.
+# Each environment file sets a `profile:` key (dev / test / prod) which loads
+# the matching profile YAML for profile-specific tuning.
 
 environments:
   eks-karpenter-vpa:
     values:
       - environments/eks-karpenter-vpa.yaml
+      - profiles/dev.yaml
 
 ---
 
@@ -19,8 +21,65 @@ repositories:
   - name: karpenter
     url: public.ecr.aws/karpenter
     oci: true
+  - name: metrics-server
+    url: https://kubernetes-sigs.github.io/metrics-server/
+  - name: fairwinds-stable
+    url: https://charts.fairwinds.com/stable
 
 releases:
+  # ── 1. metrics-server ────────────────────────────────────────────────────
+  # VPA recommender reads live CPU/memory usage from metrics-server.
+  # Must be deployed before VPA.
+  - name: metrics-server
+    namespace: kube-system
+    createNamespace: false
+    chart: metrics-server/metrics-server
+    version: "3.12.2"
+    values:
+      - vpa/metrics-server-values.yaml
+
+  # ── 2. VPA (Fairwinds chart) ──────────────────────────────────────────────
+  # Installs the VPA CRDs + recommender + updater + admission controller.
+  # Feature gate InPlaceOrRecreate enables live container resize (K8s 1.35).
+  - name: vpa
+    namespace: vpa
+    createNamespace: true
+    chart: fairwinds-stable/vpa
+    version: "4.7.3"
+    values:
+      - vpa/values.yaml.gotmpl
+
+    hooks:
+      # Apply the gp3 WaitForFirstConsumer StorageClass before any stateful
+      # workloads are created. Ensures PVC-bound pods never hit zone conflicts.
+      - events: ["presync"]
+        showlogs: true
+        command: kubectl
+        args:
+          - apply
+          - -f
+          - storage/manifests/gp3-storageclass.yaml
+
+  # ── 3. Goldilocks ─────────────────────────────────────────────────────────
+  # Auto-creates a VPA object per Deployment in labeled namespaces and
+  # exposes a right-sizing dashboard.
+  #
+  # Opt a namespace in:
+  #   kubectl label namespace <ns> goldilocks.fairwinds.com/enabled=true
+  #   kubectl label namespace <ns> goldilocks.fairwinds.com/vpa-update-mode=InPlaceOrRecreate
+  - name: goldilocks
+    namespace: goldilocks
+    createNamespace: true
+    chart: fairwinds-stable/goldilocks
+    version: "9.0.1"
+    values:
+      - vpa/goldilocks-values.yaml.gotmpl
+
+  # ── 4. Karpenter ──────────────────────────────────────────────────────────
+  # Dynamic node provisioner. Pinned to managed nodes at startup to avoid a
+  # chicken-and-egg scheduling problem.
+  #
+  # Before running: helm registry login public.ecr.aws (ECR OCI auth)
   - name: karpenter
     namespace: kube-system
     createNamespace: false
@@ -30,12 +89,12 @@ releases:
       - karpenter/values.yaml.gotmpl
 
     hooks:
-      # Karpenter v1.x bundles CRDs inside the Helm chart — no presync CRD step needed.
-      # Apply EC2NodeClass and NodePool after the chart is running.
+      # Karpenter v1.x bundles CRDs inside the chart — no separate CRD step.
+      # Apply the profile-specific EC2NodeClass + NodePool after install.
       - events: ["postsync"]
         showlogs: true
         command: kubectl
         args:
           - apply
           - -f
-          - karpenter/manifests/
+          - {{ .Values.karpenter_manifest_dir }}

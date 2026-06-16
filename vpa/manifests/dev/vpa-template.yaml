@@ -1,0 +1,37 @@
+# Fallback / hand-managed VPA template for the dev profile.
+#
+# Use this when Goldilocks does not propagate updateMode: InPlaceOrRecreate
+# into its generated VPA objects (depends on Goldilocks version).
+#
+# HOW TO USE:
+#   Copy this file, replace <deployment-name> and <namespace>, then apply:
+#     kubectl apply -f vpa-manifests/dev/<your-service>.yaml
+#
+# One VPA per Deployment. Goldilocks will still show recommendations in the
+# dashboard; this object overrides the update mode only.
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: <deployment-name>
+  namespace: <namespace>
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: <deployment-name>
+  updatePolicy:
+    # InPlaceOrRecreate: resize the running container live; evict only as fallback.
+    # Requires K8s >= 1.27 and VPA >= 1.4 with the feature gate enabled.
+    updateMode: InPlaceOrRecreate
+    # Allow the updater to act on single-replica Deployments.
+    minReplicas: 1
+  resourcePolicy:
+    containerPolicies:
+      - containerName: "*"
+        controlledResources:
+          - cpu
+          - memory
+        # Absolute floor so VPA never squeezes a container below viability.
+        minAllowed:
+          cpu: 10m
+          memory: 32Mi

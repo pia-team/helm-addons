@@ -1,0 +1,32 @@
+# test profile — stability over cost.
+#
+# Goals:
+#   - No surprise pod evictions (VPA in Initial / recommendation mode only)
+#   - On-demand capacity, no spot interruptions
+#   - Karpenter scales down only when nodes are completely empty
+#   - Broader instance families for better scheduling headroom
+
+profile: test
+
+# --- Karpenter ---
+karpenter_manifest_dir: karpenter/manifests/test
+
+# Consolidation: only remove nodes that are fully empty
+karpenter_consolidation_policy: WhenEmpty
+karpenter_consolidate_after: 10m
+
+karpenter_instance_types:
+  - t3.large
+  - t3.xlarge
+  - m5.large
+  - m5.xlarge
+
+karpenter_cpu_limit: "50"
+karpenter_memory_limit: 200Gi
+
+# --- VPA ---
+# Initial: apply recommendations only at pod creation; never evict running pods.
+vpa_update_mode: Initial
+vpa_min_replicas: "2"
+
+goldilocks_vpa_update_mode: Initial

@@ -1,0 +1,35 @@
+# Goldilocks auto-creates a VPA object per Deployment in labeled namespaces
+# and exposes a dashboard of right-sizing recommendations.
+#
+# We install VPA separately (Fairwinds chart above) so goldilocks does NOT
+# install its own VPA sub-chart.
+vpa:
+  enabled: false
+
+controller:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: eks.amazonaws.com/nodegroup
+                operator: Exists
+
+dashboard:
+  enabled: true
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: eks.amazonaws.com/nodegroup
+                operator: Exists
+
+# Per-profile default update mode propagated into generated VPA objects.
+# Namespaces opt in with: kubectl label namespace <ns> goldilocks.fairwinds.com/enabled=true
+# Override per-namespace with:  goldilocks.fairwinds.com/vpa-update-mode=<mode>
+controller:
+  flags:
+    # Default update mode for all managed VPA objects.
+    # Individual namespaces can override via the vpa-update-mode label.
+    vpa-update-mode: "{{ .Values.goldilocks_vpa_update_mode }}"

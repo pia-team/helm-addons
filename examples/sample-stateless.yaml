@@ -1,0 +1,67 @@
+# Stateless single-replica sample app for VPA + Karpenter validation.
+#
+# HOW TO USE:
+#   1. Create and label the namespace:
+#        kubectl create namespace vpa-demo
+#        kubectl label namespace vpa-demo goldilocks.fairwinds.com/enabled=true
+#        kubectl label namespace vpa-demo goldilocks.fairwinds.com/vpa-update-mode=InPlaceOrRecreate
+#   2. Apply:
+#        kubectl apply -f examples/sample-stateless.yaml
+#   3. Watch VPA recommendations appear (takes ~5 min to gather data):
+#        kubectl get vpa -n vpa-demo -w
+#   4. Watch Karpenter scale-out when requests are raised:
+#        kubectl get nodes -w
+#   5. Idle for 5+ minutes and watch Karpenter consolidate nodes.
+#
+# What to observe:
+#   - VPA recommender adjusts CPU/memory requests (in-place, no pod restart)
+#   - When the app consumes more CPU than requested, Karpenter may add a node
+#   - During idle, after consolidateAfter (5 min in dev), Karpenter removes under-used nodes
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vpa-demo
+  labels:
+    # Goldilocks watches this namespace and creates one VPA per Deployment.
+    goldilocks.fairwinds.com/enabled: "true"
+    # In the dev profile, resize pods in-place before evicting.
+    goldilocks.fairwinds.com/vpa-update-mode: "InPlaceOrRecreate"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-stateless
+  namespace: vpa-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sample-stateless
+  template:
+    metadata:
+      labels:
+        app: sample-stateless
+    spec:
+      containers:
+        - name: app
+          image: polinux/stress
+          # Start with intentionally under-sized requests so VPA has
+          # something to recommend upward.
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: "1"
+              memory: 256Mi
+          # Periodically spike CPU so VPA captures peaks.
+          # Idles most of the time → VPA will eventually shrink requests back down.
+          command:
+            - /bin/sh
+            - -c
+            - |
+              while true; do
+                stress --cpu 1 --timeout 30s
+                sleep 90
+              done

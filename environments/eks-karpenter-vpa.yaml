@@ -10,6 +10,7 @@
 #   terraform -chdir=karpenter/iam output karpenter_controller_role_arn
 #   terraform -chdir=karpenter/iam output karpenter_node_role_name
 
+profile: dev
 cluster_name: eks-karpenter-vpa
 cluster_endpoint: "https://368577AA6038238DF3BD0FDC4E281967.yl4.eu-west-1.eks.amazonaws.com"
 aws_region: eu-west-1

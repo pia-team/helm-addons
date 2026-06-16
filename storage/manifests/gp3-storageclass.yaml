@@ -1,0 +1,20 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3
+  annotations:
+    # Make gp3 the cluster default; replaces the EKS-supplied gp2 default.
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: ebs.csi.aws.com
+# WaitForFirstConsumer: the PVC is bound in the same AZ as the pod that
+# claims it. This prevents volume node-affinity conflicts when a pod is
+# rescheduled — the volume is always co-located with the pod's zone.
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+parameters:
+  type: gp3
+  # gp3 baseline: 3000 IOPS / 125 MiB/s at no extra cost vs gp2.
+  # Override per PVC via storageClassName or volume attributes if higher
+  # throughput is needed.
+  iops: "3000"
+  throughput: "125"

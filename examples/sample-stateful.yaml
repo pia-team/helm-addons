@@ -1,0 +1,81 @@
+# Stateful single-replica sample app (PVC) for VPA + zone-safety validation.
+#
+# Purpose:
+#   Verify that VPA resizes the pod in-place (no rescheduling) and that
+#   Karpenter's consolidation does NOT evict/move this pod to another node/AZ.
+#
+# HOW TO USE:
+#   1. Ensure the vpa-demo namespace is created and labeled (see sample-stateless.yaml).
+#   2. Apply:
+#        kubectl apply -f examples/sample-stateful.yaml
+#   3. Note the AZ the pod is running in:
+#        kubectl get pod -n vpa-demo -o wide
+#   4. Confirm the PVC is bound in the same AZ:
+#        kubectl describe pvc sample-stateful-data -n vpa-demo | grep -i zone
+#   5. After 5+ minutes of idle, confirm the pod is NOT evicted by Karpenter:
+#        kubectl get pod sample-stateful-0 -n vpa-demo -w
+#   6. Check VPA resized the pod without rescheduling:
+#        kubectl describe pod sample-stateful-0 -n vpa-demo | grep -A5 "Containers:"
+#
+# Zone-safety mechanism:
+#   - StorageClass gp3 uses volumeBindingMode: WaitForFirstConsumer
+#     → the PVC binds in the same AZ as the pod, not a random AZ at claim time.
+#   - The pod is annotated karpenter.sh/do-not-disrupt: "true"
+#     → Karpenter will never voluntarily evict this pod during consolidation.
+#   - VPA resizes CPU/memory in-place (InPlaceOrRecreate mode)
+#     → no reschedule unless the node cannot accommodate the new size.
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: sample-stateful
+  namespace: vpa-demo
+spec:
+  serviceName: sample-stateful
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sample-stateful
+  template:
+    metadata:
+      labels:
+        app: sample-stateful
+      annotations:
+        # Tell Karpenter: do not evict this pod during consolidation.
+        # The node hosting this pod will only be replaced during a Disruption
+        # Budget-aware rolling operation, never via voluntary consolidation.
+        karpenter.sh/do-not-disrupt: "true"
+    spec:
+      containers:
+        - name: app
+          image: busybox
+          command:
+            - /bin/sh
+            - -c
+            - |
+              while true; do
+                dd if=/dev/urandom of=/data/testfile bs=1M count=10 2>/dev/null
+                sleep 60
+              done
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: "500m"
+              memory: 128Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        # gp3 StorageClass uses WaitForFirstConsumer:
+        # the volume is provisioned in the same AZ as the pod.
+        storageClassName: gp3
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
