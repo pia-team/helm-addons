@@ -4,7 +4,11 @@ metadata:
   name: default
 spec:
   # AL2023 is the recommended AMI family for new clusters (EKS 1.29+).
-  amiFamily: AL2023
+  # Karpenter v1.x uses amiSelectorTerms instead of amiFamily.
+  # Use @latest to always get the newest patched AMI, or pin to a specific version
+  # e.g. al2023@v20240625 for reproducible builds.
+  amiSelectorTerms:
+    - alias: al2023@latest
 
   # The IAM role that Karpenter-provisioned nodes will assume.
   # Must match karpenter_node_role_name from karpenter/iam/ Terraform output.
