@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: load-generator
+  namespace: vpa-demo
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: load-generator
+  template:
+    metadata:
+      labels:
+        app: load-generator
+    spec:
+      containers:
+        - name: app
+          image: polinux/stress
+          resources:
+            requests:
+              cpu: 200m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 256Mi
+          command:
+            - /bin/sh
+            - -c
+            - |
+              stress --cpu 1 --timeout 600s
