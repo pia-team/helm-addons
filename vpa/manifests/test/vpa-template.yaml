@@ -1,0 +1,26 @@
+# Fallback / hand-managed VPA template for the test profile.
+#
+# updateMode: Initial — apply recommendations at pod creation only.
+# Running pods are never evicted; restart the pod to pick up new sizing.
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: <deployment-name>
+  namespace: <namespace>
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: <deployment-name>
+  updatePolicy:
+    updateMode: Initial
+    minReplicas: 2
+  resourcePolicy:
+    containerPolicies:
+      - containerName: "*"
+        controlledResources:
+          - cpu
+          - memory
+        minAllowed:
+          cpu: 25m
+          memory: 64Mi

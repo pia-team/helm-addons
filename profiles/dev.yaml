@@ -1,0 +1,36 @@
+# dev profile — minimal cost, single-replica workloads, in-place VPA resize.
+#
+# Goals:
+#   - Lowest possible AWS bill
+#   - VPA resizes pods in-place (no downtime for single replicas)
+#   - Karpenter scales down aggressively during idle, up rapidly on demand
+#   - Burstable t-series instances only
+
+profile: dev
+
+# --- Karpenter ---
+karpenter_manifest_dir: karpenter/manifests/dev
+
+# Consolidation: remove underutilized nodes after 5 min (anti-flap, delayed shrink)
+karpenter_consolidation_policy: WhenEmptyOrUnderutilized
+karpenter_consolidate_after: 5m
+
+# Instance families (t-series only for cost)
+karpenter_instance_types:
+  - t3.medium
+  - t3.large
+  - t3.xlarge
+
+# Safety cap
+karpenter_cpu_limit: "20"
+karpenter_memory_limit: 80Gi
+
+# --- VPA ---
+# InPlaceOrRecreate: resize the running container's CPU/memory live.
+# Falls back to pod recreation only when in-place is not possible.
+# min-replicas=1 allows the updater to act on single-replica deployments.
+vpa_update_mode: InPlaceOrRecreate
+vpa_min_replicas: "1"
+
+# Goldilocks namespace label value for this profile
+goldilocks_vpa_update_mode: InPlaceOrRecreate

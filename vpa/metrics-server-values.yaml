@@ -1,0 +1,18 @@
+# metrics-server is required by the VPA recommender to read real-time
+# CPU/memory usage from pods and nodes.
+#
+# EKS does not ship metrics-server by default.
+
+args:
+  # EKS nodes use self-signed kubelet TLS certs; skip verification.
+  - --kubelet-insecure-tls
+
+# Pin to managed (bootstrap) nodes to avoid a scheduling dependency
+# on Karpenter-provisioned nodes during startup.
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: eks.amazonaws.com/nodegroup
+              operator: Exists

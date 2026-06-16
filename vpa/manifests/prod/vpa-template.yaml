@@ -1,0 +1,27 @@
+# VPA template for the prod profile.
+#
+# updateMode: Off — VPA collects recommendations but applies nothing automatically.
+# Engineers review `kubectl get vpa -A` and apply approved values via Helm
+# or resource patches during a maintenance window.
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: <deployment-name>
+  namespace: <namespace>
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: <deployment-name>
+  updatePolicy:
+    updateMode: "Off"
+    minReplicas: 2
+  resourcePolicy:
+    containerPolicies:
+      - containerName: "*"
+        controlledResources:
+          - cpu
+          - memory
+        minAllowed:
+          cpu: 50m
+          memory: 128Mi

@@ -7,16 +7,23 @@ settings:
   clusterEndpoint: {{ .Values.cluster_endpoint }}
   interruptionQueue: {{ .Values.karpenter_interruption_queue_name }}
 
-# Keep Karpenter controller on the managed (bootstrap) node group so it is
-# available before any Karpenter-provisioned nodes exist.
-nodeSelector:
-  eks.amazonaws.com/nodegroup: node-group
+# Pin Karpenter to managed (non-Karpenter) nodes to avoid a bootstrap
+# chicken-and-egg situation. Managed nodes carry the eks.amazonaws.com/nodegroup
+# label; Karpenter-provisioned nodes do not.
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: eks.amazonaws.com/nodegroup
+              operator: Exists
 
 tolerations:
   - key: CriticalAddonsOnly
     operator: Exists
 
-# Two replicas for HA — both land on managed nodes via the nodeSelector above.
-replicas: 2
+# 1 replica while the cluster has a single managed node.
+# Increase to 2 once a second node joins (requires pod anti-affinity to spread across nodes).
+replicas: 1
 
 logLevel: info
