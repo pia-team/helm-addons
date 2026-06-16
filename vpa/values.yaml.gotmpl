@@ -19,6 +19,13 @@ updater:
     # Enable in-place pod resource resize (K8s 1.27+, graduated in 1.33).
     # The updater will attempt to resize running containers before evicting.
     feature-gates: "InPlaceOrRecreate=true"
+    # How much extra capacity a node must have before the updater is willing
+    # to evict a pod for resize. Lower = more aggressive; higher = more stable.
+    # Driven by the active profile (dev/test/prod).
+    eviction-tolerance: "{{ .Values.vpa_eviction_tolerance }}"
+    # Minimum age of a pod before the updater will resize it. Short in dev for
+    # quick feedback; long in prod for stability.
+    pod-lifetime-update-threshold: "{{ .Values.vpa_pod_lifetime_update_threshold }}"
   affinity:
     nodeAffinity:
       requiredDuringSchedulingIgnoredDuringExecution:

@@ -11,9 +11,11 @@ profile: test
 # --- Karpenter ---
 karpenter_manifest_dir: karpenter/manifests/test
 
-# Consolidation: only remove nodes that are fully empty
+# Consolidation: only remove fully empty nodes, and wait 4 hours of
+# inactivity before doing so. This gives test workloads a stable environment
+# during the working day while still cleaning up overnight.
 karpenter_consolidation_policy: WhenEmpty
-karpenter_consolidate_after: 10m
+karpenter_consolidate_after: 4h
 
 karpenter_instance_types:
   - t3.large
@@ -25,8 +27,14 @@ karpenter_cpu_limit: "50"
 karpenter_memory_limit: 200Gi
 
 # --- VPA ---
-# Initial: apply recommendations only at pod creation; never evict running pods.
-vpa_update_mode: Initial
+# InPlaceOrRecreate: resize the running container live, but with moderate
+# updater settings so running test pods are not churned aggressively.
+vpa_update_mode: InPlaceOrRecreate
 vpa_min_replicas: "2"
 
-goldilocks_vpa_update_mode: Initial
+# Moderate updater: half the default eviction tolerance and a 6-hour minimum
+# pod lifetime before the updater will consider resizing a running pod.
+vpa_eviction_tolerance: "0.5"
+vpa_pod_lifetime_update_threshold: 6h
+
+goldilocks_vpa_update_mode: InPlaceOrRecreate

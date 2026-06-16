@@ -52,8 +52,8 @@ spec:
     memory: 80Gi
 
   disruption:
-    # Remove underutilized nodes after 5 minutes (delayed shrink to prevent
-    # flapping when VPA is adjusting requests up and down).
+    # Remove underutilized nodes only after 2 hours of inactivity.
+    # This matches profiles/dev.yaml karpenter_consolidate_after.
     # Fast scale-up still happens immediately whenever pods are pending.
     consolidationPolicy: WhenEmptyOrUnderutilized
-    consolidateAfter: 5m
+    consolidateAfter: 2h

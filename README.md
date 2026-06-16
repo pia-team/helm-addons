@@ -49,11 +49,15 @@ helm-addons/
 
 Each environment file sets a `profile:` key that controls VPA update mode, Karpenter consolidation, and instance families:
 
-| Profile | VPA mode | Karpenter consolidation | Instances | Use case |
-|---------|----------|------------------------|-----------|----------|
-| `dev` | `InPlaceOrRecreate` | `WhenEmptyOrUnderutilized`, 5 min | t-series | Minimal cost, single replicas, dev environments |
-| `test` | `Initial` | `WhenEmpty`, 10 min | t3 + m5 | Stability, no surprise evictions |
-| `prod` | `Off` (recommendations only) | `WhenEmpty`, 15 min | m5 + r5 | HA, manual resource tuning |
+| Profile | VPA mode | VPA updater stance | Karpenter consolidation | Scale-up | Use case |
+|---------|----------|-------------------|------------------------|----------|----------|
+| `dev` | `InPlaceOrRecreate` | Aggressive (`eviction-tolerance: 0.25`, 1h pod lifetime) | `WhenEmptyOrUnderutilized`, 2h cooldown | Instant on pending pods | Minimal cost, single replicas, dev environments |
+| `test` | `InPlaceOrRecreate` | Moderate (`eviction-tolerance: 0.5`, 6h pod lifetime) | `WhenEmpty`, 4h cooldown | Instant on pending pods | Stability, no surprise evictions |
+| `prod` | `InPlaceOrRecreate` | Conservative (`eviction-tolerance: 0.75`, 24h pod lifetime) | `WhenEmpty`, 12h cooldown | Instant on pending pods | HA, gentle in-place resizing |
+
+> **Scale-up is always rapid.** Karpenter creates a `NodeClaim` as soon as a pod is unschedulable, regardless of the consolidation cooldown.
+>
+> **Scale-down is intentionally delayed.** The cooldown defines how long a node must be empty/underutilized before Karpenter removes it. Longer cooldowns in higher environments keep capacity warm through nights, weekends, and business-hour gaps.
 
 ### How idle scale-down and active scale-up work (dev profile)
 
@@ -62,7 +66,7 @@ Evening (traffic drops)
   → VPA lowers CPU/memory requests (slow histogram decay)
   → In-place resize DOWN — no eviction
   → Nodes become underutilized
-  → After 5 min (consolidateAfter), Karpenter bins-packs and removes nodes
+  → After 2 hours (consolidateAfter), Karpenter bin-packs and removes nodes
 
 Morning (traffic returns)
   → VPA raises requests (fast peak percentile)
@@ -253,9 +257,17 @@ kubectl label namespace <your-ns> goldilocks.fairwinds.com/vpa-update-mode=InPla
 
 | Mode | Behaviour | When to use |
 |------|-----------|-------------|
-| `InPlaceOrRecreate` | Resizes the running container live; evicts only as last resort | Dev: single-replica, cost-optimised |
-| `Initial` | Applies recommendations at pod creation only; never evicts running pods | Test: stability first |
-| `Off` | Records recommendations, applies nothing | Prod: manual review before changes |
+| `InPlaceOrRecreate` | Resizes the running container live; evicts only as last resort | All environments with profile-driven updater aggressiveness |
+| `Initial` | Applies recommendations at pod creation only; never evicts running pods | Alternative stability-first mode |
+| `Off` | Records recommendations, applies nothing | Manual-review mode; no automatic changes |
+
+The default profiles all use `InPlaceOrRecreate`, but tune the **VPA updater aggressiveness**:
+
+| Profile | `eviction-tolerance` | `pod-lifetime-update-threshold` | Effect |
+|---------|----------------------|--------------------------------|--------|
+| `dev` | `0.25` (low) | `1h` | Resize quickly, accept more churn |
+| `test` | `0.5` (medium) | `6h` | Resize steadily, moderate stability |
+| `prod` | `0.75` (high) | `24h` | Resize only when safe and pods are mature |
 
 ### In-place resize (K8s 1.35 + VPA 1.4+)
 

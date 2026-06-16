@@ -1,7 +1,8 @@
 # Fallback / hand-managed VPA template for the test profile.
 #
-# updateMode: Initial — apply recommendations at pod creation only.
-# Running pods are never evicted; restart the pod to pick up new sizing.
+# updateMode: InPlaceOrRecreate — resize the running container live; evict only
+# as fallback. Matches the test profile default.
+# minReplicas: 2 keeps the updater from acting on single-replica test workloads.
 apiVersion: autoscaling.k8s.io/v1
 kind: VerticalPodAutoscaler
 metadata:
@@ -13,7 +14,7 @@ spec:
     kind: Deployment
     name: <deployment-name>
   updatePolicy:
-    updateMode: Initial
+    updateMode: InPlaceOrRecreate
     minReplicas: 2
   resourcePolicy:
     containerPolicies:
