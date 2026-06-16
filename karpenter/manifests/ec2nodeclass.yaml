@@ -26,6 +26,6 @@ spec:
         kubernetes.io/cluster/eks-karpenter-vpa: owned
 
   # Tag every instance Karpenter launches so the controller policy conditions work.
+  # Note: kubernetes.io/cluster/* tags are reserved and managed by Karpenter — do not set them here.
   tags:
-    kubernetes.io/cluster/eks-karpenter-vpa: owned
     karpenter.sh/discovery: eks-karpenter-vpa
