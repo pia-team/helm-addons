@@ -14,3 +14,18 @@ verticalpodautoscaler.autoscaling.k8s.io/sample-stateless created
 Workloads deleted at 2026-06-16T14:36:58Z
 2026-06-16T14:37:39Z - Consolidation cooldown started. Node ip-10-1-1-213 should NOT be removed before 2026-06-16T16:37:39Z
 2026-06-16T14:27:12Z
+=== Phase 4 complete: 2026-06-16T16:38:56Z ===
+NAME                                       STATUS   ROLES    AGE   VERSION               INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                        KERNEL-VERSION                    CONTAINER-RUNTIME
+ip-10-1-1-165.eu-west-1.compute.internal   Ready    <none>   10h   v1.35.5-eks-3385e9b   10.1.1.165    <none>        Amazon Linux 2023.11.20260526   6.12.88-119.157.amzn2023.x86_64   containerd://2.2.3+unknown
+---
+=== Phase 5: Second rapid scale-up at 2026-06-16T16:39:13Z ===
+deployment.apps/load-generator created
+=== Phase 6: Cleanup at 2026-06-16T16:41:36Z ===
+Cleanup complete at 2026-06-16T16:42:22Z
+Final cluster state at 2026-06-16T16:42:29Z:
+NAME                                       STATUS   ROLES    AGE   VERSION               INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                        KERNEL-VERSION                    CONTAINER-RUNTIME
+ip-10-1-1-165.eu-west-1.compute.internal   Ready    <none>   11h   v1.35.5-eks-3385e9b   10.1.1.165    <none>        Amazon Linux 2023.11.20260526   6.12.88-119.157.amzn2023.x86_64   containerd://2.2.3+unknown
+ip-10-1-2-144.eu-west-1.compute.internal   Ready    <none>   95s   v1.35.5-eks-0de9cde   10.1.2.144    <none>        Amazon Linux 2023.12.20260608   6.12.90-120.164.amzn2023.x86_64   containerd://2.2.4+unknown
+---
+NAME            TYPE        CAPACITY    ZONE         NODE                                       READY   AGE
+default-drn4q   t3.medium   on-demand   eu-west-1b   ip-10-1-2-144.eu-west-1.compute.internal   True    3m5s
