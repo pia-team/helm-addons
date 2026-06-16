@@ -17,3 +17,5 @@ environments:
 
 helmfiles:
   - path: karpenter/helmfile.yaml.gotmpl
+    values:
+      - environments/{{ .Environment.Name }}.yaml
