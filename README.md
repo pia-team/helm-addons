@@ -10,11 +10,10 @@ Each cluster is an **environment**. Adding a new environment file is all that's 
 
 ```
 helm-addons/
-├── helmfile.yaml                   # Root orchestrator — entry point for all installs
+├── helmfile.yaml.gotmpl            # Root orchestrator — entry point for all installs
 ├── environments/
 │   └── eks-karpenter-vpa.yaml      # Per-cluster values (one file per cluster)
 ├── karpenter/
-│   ├── helmfile.yaml               # Karpenter Helm release definition
 │   ├── values.yaml.gotmpl          # Chart values template (reads from environment file)
 │   ├── manifests/
 │   │   ├── ec2nodeclass.yaml       # Defines how Karpenter launches EC2 nodes
@@ -29,6 +28,9 @@ helm-addons/
 └── vpa/                            # Vertical Pod Autoscaler (coming soon)
 ```
 
+> **Note:** The root file is `helmfile.yaml.gotmpl` (not `helmfile.yaml`). Helmfile v1 requires the
+> `.gotmpl` extension on any file that uses Go template expressions (`{{ .Values.* }}`).
+
 ---
 
 ## Prerequisites
@@ -36,7 +38,7 @@ helm-addons/
 | Tool | Minimum version | Install |
 |------|----------------|---------|
 | Terraform | 1.5.7 | https://developer.hashicorp.com/terraform/install |
-| Helmfile | 0.167+ | https://helmfile.readthedocs.io |
+| Helmfile | 1.x | `brew install helmfile` |
 | Helm | 3.14+ | https://helm.sh/docs/intro/install |
 | kubectl | 1.29+ | https://kubernetes.io/docs/tasks/tools |
 | AWS CLI | 2.x | https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html |
@@ -47,37 +49,64 @@ Your shell must be authenticated to the target AWS account (`aws sts get-caller-
 
 ## Installing Karpenter on a cluster
 
-### Step 1 — Apply the IAM Terraform module
+### Step 1 — Tag private subnets for Karpenter discovery (Terraform)
 
-This creates the Karpenter controller IAM role (IRSA), the node IAM role, the SQS interruption queue, and the EventBridge rules. It only needs to run once per cluster.
+Karpenter discovers subnets by tag. The cluster's private subnets must carry the tag
+`karpenter.sh/discovery=<cluster-name>`. Do this in the cluster's Terraform before running Helmfile.
+
+In `terraform/clusters/<cluster>/main.tf`, pass the tag to the vpc module:
+
+```hcl
+module "vpc" {
+  ...
+  private_subnet_tags = {
+    "karpenter.sh/discovery" = "<cluster-name>"
+  }
+}
+```
+
+Then apply:
+
+```bash
+cd terraform/clusters/<cluster>
+terraform apply -target=module.vpc
+```
+
+This is already done for `eks-karpenter-vpa`. Repeat for every new cluster.
+
+### Step 2 — Apply the IAM Terraform module
+
+This creates the Karpenter controller IAM role (IRSA), the node IAM role, the SQS interruption
+queue, and the EventBridge rules. Run once per cluster.
 
 ```bash
 cd karpenter/iam
-
-# Copy the example and fill in the OIDC values
 cp example.tfvars terraform.tfvars
 ```
 
-Edit `terraform.tfvars`:
+Edit `terraform.tfvars` with real values (replace the placeholders):
 
 ```hcl
-cluster_name      = "eks-karpenter-vpa"
+cluster_name      = "<cluster-name>"
 aws_region        = "eu-west-1"
 
 # Get these from the cluster Terraform repo:
-#   cd ../../../terraform/clusters/eks-karpenter-vpa
+#   cd terraform/clusters/<cluster>
 #   terraform output oidc_provider_arn
 #   terraform output oidc_provider_url
 oidc_provider_arn = "arn:aws:iam::<account_id>:oidc-provider/oidc.eks.eu-west-1.amazonaws.com/id/<oidc_id>"
 oidc_provider_url = "https://oidc.eks.eu-west-1.amazonaws.com/id/<oidc_id>"
 ```
 
+> **Important:** Use the real OIDC values — not the example placeholders. The IRSA trust policy
+> will not work if the literal strings `<account_id>` or `<oidc_id>` remain.
+
 ```bash
 terraform init
 terraform apply
 ```
 
-Note the three outputs — you will need them in the next step:
+Note the outputs — you need them in the next steps:
 
 ```bash
 terraform output karpenter_controller_role_arn
@@ -85,37 +114,81 @@ terraform output karpenter_node_role_name
 terraform output karpenter_interruption_queue_name
 ```
 
-### Step 2 — Fill in the environment file
+### Step 3 — Fill in the environment file
 
-Open `environments/eks-karpenter-vpa.yaml` and set the four empty fields:
+Copy the example and fill in all fields:
 
-```yaml
-cluster_endpoint:              # terraform output cluster_endpoint  (from cluster TF repo)
-karpenter_controller_role_arn: # terraform output karpenter_controller_role_arn  (from step 1)
-karpenter_interruption_queue_name: # terraform output karpenter_interruption_queue_name
-karpenter_node_role_name:      # terraform output karpenter_node_role_name
+```bash
+cp environments/eks-karpenter-vpa.yaml environments/<cluster>.yaml
 ```
 
-### Step 3 — Update the manifests with the node role name
+```yaml
+cluster_name: <cluster-name>
+cluster_endpoint: ""     # terraform output cluster_endpoint  (from cluster TF repo)
+aws_region: eu-west-1
 
-Open `karpenter/manifests/ec2nodeclass.yaml` and set `spec.role` to the node role name from step 1:
+karpenter_version: "1.5.0"
+
+karpenter_controller_role_arn: ""    # terraform output karpenter_controller_role_arn
+karpenter_interruption_queue_name: "" # terraform output karpenter_interruption_queue_name
+karpenter_node_role_name: ""         # terraform output karpenter_node_role_name
+```
+
+### Step 4 — Update the manifests for the new cluster
+
+`karpenter/manifests/ec2nodeclass.yaml` contains three cluster-name references that must match:
 
 ```yaml
 spec:
-  role: eks-karpenter-vpa-karpenter-node   # replace if you used a custom name
+  role: <cluster-name>-karpenter-node          # node IAM role name
+
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: <cluster-name>  # must match private_subnet_tags in Terraform
+
+  securityGroupSelectorTerms:
+    - tags:
+        kubernetes.io/cluster/<cluster-name>: owned
+
+  tags:
+    karpenter.sh/discovery: <cluster-name>
 ```
 
-### Step 4 — Install
+### Step 5 — Log in to the ECR public registry
+
+Karpenter's chart is hosted on ECR Public. Helm requires a valid login token before it can pull
+the chart. ECR Public tokens expire after 12 hours so repeat this at the start of each session:
 
 ```bash
-# From the repo root — always run helmfile from here
+aws ecr-public get-login-password --region us-east-1 \
+  | helm registry login --username AWS --password-stdin public.ecr.aws
+```
+
+> **Note:** ECR Public login always uses `us-east-1` regardless of your cluster's region.
+
+### Step 6 — Add the environment to `helmfile.yaml.gotmpl`
+
+```yaml
+environments:
+  eks-karpenter-vpa:
+    values:
+      - environments/eks-karpenter-vpa.yaml
+  <cluster>:                    # add this block for the new cluster
+    values:
+      - environments/<cluster>.yaml
+```
+
+### Step 7 — Install
+
+```bash
+# From the repo root
 cd helm-addons
 
 # Preview what will change
-helmfile -e eks-karpenter-vpa diff
+helmfile -e <cluster> diff
 
 # Install / upgrade
-helmfile -e eks-karpenter-vpa sync
+helmfile -e <cluster> sync
 ```
 
 Helmfile will:
@@ -123,24 +196,24 @@ Helmfile will:
 2. Install the Karpenter Helm chart into `kube-system`
 3. Apply `karpenter/manifests/` (EC2NodeClass + NodePool)
 
-### Step 5 — Verify
+### Step 8 — Verify
 
 ```bash
 kubectl get pods -n kube-system -l app.kubernetes.io/name=karpenter
-kubectl get ec2nodeclass
-kubectl get nodepool
+kubectl get ec2nodeclass    # should show READY: True
+kubectl get nodepool        # should show READY: True
 ```
 
 ---
 
 ## Customising Karpenter
 
-### Change the Kubernetes version or Karpenter version
+### Change the Karpenter version
 
 Edit `environments/<cluster>.yaml`:
 
 ```yaml
-karpenter_version: "1.6.0"   # bump to a newer release
+karpenter_version: "1.6.0"
 ```
 
 Then re-run `helmfile -e <cluster> sync`.
@@ -153,10 +226,10 @@ Edit `karpenter/manifests/nodepool.yaml` under `spec.template.spec.requirements`
 - key: node.kubernetes.io/instance-type
   operator: In
   values:
-    - m5.large
-    - m5.xlarge
-    - m5.2xlarge
-    - c5.xlarge      # add compute-optimised instances
+    - t3.large
+    - t3.xlarge
+    - m5.large       # uncomment m-series for general-purpose workloads
+    - r5.large       # uncomment r-series for memory-intensive workloads
 ```
 
 ### Allow Spot instances
@@ -169,11 +242,10 @@ In `nodepool.yaml`, add `"spot"` to the capacity-type requirement:
   values: ["on-demand", "spot"]
 ```
 
-The SQS interruption queue is already wired up — Karpenter will gracefully drain Spot nodes before they are reclaimed.
+The SQS interruption queue is already wired up — Karpenter will gracefully drain Spot nodes
+before they are reclaimed.
 
 ### Change consolidation behaviour
-
-In `nodepool.yaml`:
 
 ```yaml
 disruption:
@@ -185,68 +257,53 @@ disruption:
 
 ### Increase / decrease scaling limits
 
-In `nodepool.yaml`:
-
 ```yaml
 limits:
-  cpu: "200"        # raise the cap for production
+  cpu: "200"        # raise for production
   memory: 800Gi
 ```
 
 ### Use a different AMI family
 
-In `ec2nodeclass.yaml`:
+In `ec2nodeclass.yaml`, update `amiSelectorTerms`:
 
 ```yaml
-spec:
-  amiFamily: Bottlerocket   # AL2023 (default) | AL2 | Bottlerocket | Windows2022
+amiSelectorTerms:
+  - alias: al2023@latest        # Amazon Linux 2023 (default)
+  # - alias: bottlerocket@latest
+  # - alias: al2@latest
+```
+
+> Karpenter v1.x uses `amiSelectorTerms` with an alias. The old `amiFamily:` field was removed.
+
+### HA replicas (single-node vs multi-node clusters)
+
+The default is `replicas: 1` in `karpenter/values.yaml.gotmpl`. Karpenter's Helm chart deploys
+with pod anti-affinity, so running 2 replicas requires at least 2 managed nodes. Increase once
+a second bootstrap node is available:
+
+```yaml
+replicas: 2
 ```
 
 ---
 
 ## Applying to another existing cluster
 
-1. **Create the environment file:**
-
-   ```bash
-   cp environments/eks-karpenter-vpa.yaml environments/<other-cluster>.yaml
-   ```
-
-   Fill in the cluster-specific values.
-
-2. **Run the IAM module for the new cluster:**
-
-   ```bash
-   cd karpenter/iam
-   # edit terraform.tfvars with the new cluster's values
-   terraform workspace new <other-cluster>   # optional — use workspaces or a separate tfvars
-   terraform apply
-   ```
-
-3. **Add the environment to `helmfile.yaml`:**
-
-   ```yaml
-   environments:
-     eks-karpenter-vpa:
-       values:
-         - environments/eks-karpenter-vpa.yaml
-     <other-cluster>:                        # add this block
-       values:
-         - environments/<other-cluster>.yaml
-   ```
-
-4. **Install:**
-
-   ```bash
-   helmfile -e <other-cluster> sync
-   ```
+1. Tag the cluster's private subnets in Terraform (Step 1 above).
+2. Apply the IAM module with the new cluster's OIDC values (Step 2).
+3. Copy and fill `environments/<other-cluster>.yaml` (Step 3).
+4. Update cluster-name references in `ec2nodeclass.yaml` (Step 4) — or maintain a separate
+   manifest per cluster under `karpenter/manifests/<cluster>/`.
+5. Add the environment block to `helmfile.yaml.gotmpl` (Step 6).
+6. Log in to ECR Public (Step 5) and run `helmfile -e <other-cluster> sync`.
 
 ---
 
 ## Uninstalling
 
 ```bash
-# Remove the Helm release and manifests
+# Remove the Helm release and CRD resources
 helmfile -e <cluster> destroy
 
 # Remove the IAM resources
@@ -255,6 +312,32 @@ cd karpenter/iam && terraform destroy
 
 ---
 
+## Troubleshooting
+
+### `exec: "docker-credential-desktop": executable file not found`
+
+Your `~/.docker/config.json` has `"credsStore": "desktop"` but Docker Desktop is not installed
+or not running. Remove that line from the config, then log in to ECR Public (Step 5 above).
+
+### `SubnetSelector did not match any Subnets`
+
+The private subnets are missing the `karpenter.sh/discovery=<cluster-name>` tag. Go back to
+Step 1 and apply the Terraform change.
+
+### `AccessDenied: Not authorized to perform sts:AssumeRoleWithWebIdentity`
+
+The IRSA trust policy on the controller role has wrong OIDC values (often the literal example
+placeholders were left in `terraform.tfvars`). Re-apply the IAM Terraform with the real OIDC
+ARN and URL from `terraform output`.
+
+### `EC2NodeClass READY: False`
+
+Run `kubectl describe ec2nodeclass default` and check the `Status.Conditions` section — it shows
+exactly which dependency (subnets, security groups, AMI, instance profile) is unresolved.
+
+---
+
 ## VPA (coming soon)
 
-The `vpa/` directory is a placeholder. Once Karpenter is validated on `eks-karpenter-vpa`, the Vertical Pod Autoscaler will be added here following the same environment-based pattern.
+The `vpa/` directory is a placeholder. Once Karpenter is validated on `eks-karpenter-vpa`, the
+Vertical Pod Autoscaler will be added here following the same environment-based pattern.
