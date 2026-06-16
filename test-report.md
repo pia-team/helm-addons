@@ -1,279 +1,311 @@
-# VPA + Karpenter Integration Test Report
+# VPA + Goldilocks + Karpenter Integration Test Report
 
 **Cluster:** `eks-karpenter-vpa`  
 **Region:** `eu-west-1`  
-**Kubernetes:** `1.35.5`  
-**Profile:** `dev`  
-**Date:** 2026-06-16  
-**Tester:** automated validation run
+**Kubernetes:** `v1.35.5-eks-3385e9b`  
+**Profile:** `dev` (`InPlaceOrRecreate` VPA, `WhenEmptyOrUnderutilized` consolidation, `consolidateAfter: 5m`)  
+**Date:** 2026-06-16
 
 ---
 
 ## 1. Test Scenarios
 
-| ID | Scenario | Goal | Pass criteria |
-|----|----------|------|---------------|
-| T1 | Addon health | All platform add-ons are running before workloads are deployed | metrics-server, VPA (recommender/updater/admission), Goldilocks dashboard, Karpenter controller, and `gp3` StorageClass are healthy |
-| T2 | gp3 StorageClass zone safety | PVCs bind in the pod's AZ | `gp3` is default; `volumeBindingMode: WaitForFirstConsumer`; PV node affinity matches pod zone |
-| T3 | Goldilocks namespace labeling | Auto-create VPA objects per workload | Labeling `goldilocks.fairwinds.com/enabled=true` creates VPAs with correct `updateMode` |
-| T4 | Goldilocks fallback (hand-managed VPA) | Work around Goldilocks label bug | Direct VPA CRs with `updateMode: InPlaceOrRecreate` are accepted and reconciled |
-| T5 | Stateless workload + in-place VPA resize | VPA adjusts CPU/memory without pod restart | Pod restart count stays 0; requests change to match VPA target |
-| T6 | Stateful workload + PVC | Stateful pod runs with gp3 volume in same AZ | PVC `Bound`; pod and PV both in `eu-west-1a`; no reschedule on resize |
-| T7 | PVC guardrail (`do-not-disrupt`) | Karpenter does not evict PVC-backed pods during consolidation | Node hosting annotated pod is not removed while pod is running |
-| T8 | Load scale-out (Karpenter) | Pending pods trigger fast node provisioning | Karpenter creates a `t3.medium` node within seconds of pods going Pending |
-| T9 | VPA scale-up under load | VPA recommender raises requests when CPU usage spikes | Recommendations reflect observed load (~650–813m per load-generator pod) |
-| T10 | Idle scale-down (Karpenter consolidation) | Extra node removed after workloads drain | NodeClaim count returns to 0; cluster returns to bootstrap node only |
+### 1.1 Addon Health
+
+| # | Scenario | Pass criteria |
+|---|----------|---------------|
+| 1.1.1 | **metrics-server** installed and serving | Pod `Running` in `kube-system`; `kubectl top nodes` returns CPU/memory |
+| 1.1.2 | **VPA** (Fairwinds chart) installed | Recommender, updater, admission-controller pods `Running` in `vpa` namespace |
+| 1.1.3 | **Goldilocks** installed | Controller + dashboard pods `Running` in `goldilocks` namespace |
+| 1.1.4 | **Karpenter** installed | Controller pod `Running` in `kube-system`; `EC2NodeClass` and `NodePool` `READY=True` |
+| 1.1.5 | **gp3 StorageClass** applied | `gp3` exists, `DEFAULT=true`, `volumeBindingMode=WaitForFirstConsumer`, provisioner `ebs.csi.aws.com` |
+
+### 1.2 Namespace Labeling / VPA Object Creation
+
+| # | Scenario | Pass criteria |
+|---|----------|---------------|
+| 1.2.1 | Create `vpa-demo` namespace with Goldilocks labels | `goldilocks.fairwinds.com/enabled=true` and `goldilocks.fairwinds.com/vpa-update-mode=InPlaceOrRecreate` |
+| 1.2.2 | Goldilocks auto-creates VPA per workload | One `VerticalPodAutoscaler` CR per Deployment/StatefulSet appears in `vpa-demo` |
+| 1.2.3 | VPA `updateMode` is `InPlaceOrRecreate` | `kubectl get vpa -o yaml` shows `updatePolicy.updateMode: InPlaceOrRecreate` |
+
+### 1.3 Stateless Workload + VPA In-Place Resize
+
+| # | Scenario | Pass criteria |
+|---|----------|---------------|
+| 1.3.1 | Deploy `sample-stateless` (polinux/stress, 10m CPU request) | Pod schedules and runs periodic 30s CPU spikes |
+| 1.3.2 | VPA recommender gathers usage | `RecommendationProvided` condition becomes `True` within ~5 min |
+| 1.3.3 | VPA updater raises requests in-place | Pod CPU request increases toward target (e.g. 10m → 1 CPU) with **0 restarts** |
+| 1.3.4 | In-place resize annotation | Pod annotated `vpaInPlaceUpdated: "true"` |
+
+### 1.4 Stateful Workload + PVC Zone Safety + do-not-disrupt
+
+| # | Scenario | Pass criteria |
+|---|----------|---------------|
+| 1.4.1 | Deploy `sample-stateful` StatefulSet with gp3 PVC | PVC `data-sample-stateful-0` binds to `Bound` |
+| 1.4.2 | PVC zone matches pod zone | PV node affinity pins volume to same AZ as pod (e.g. `eu-west-1a`) |
+| 1.4.3 | `karpenter.sh/do-not-disrupt: "true"` on pod | Annotation present on `sample-stateful-0` |
+| 1.4.4 | VPA in-place resize on stateful pod | CPU/memory requests adjusted with **0 restarts**, pod stays on same node |
+| 1.4.5 | Karpenter does not evict protected pod | Node hosting stateful pod is **not** consolidated while pod is running |
+
+### 1.5 Load Generator Scale-Out (Karpenter Provisions Node)
+
+| # | Scenario | Pass criteria |
+|---|----------|---------------|
+| 1.5.1 | Deploy `load-generator` (3 replicas, 200m CPU request, 1 CPU stress each) | Some pods go `Pending` when bootstrap node is full |
+| 1.5.2 | Karpenter provisions a new node | `NodeClaim` created; node joins `Ready` within seconds |
+| 1.5.3 | Pending pods schedule on new node | All load-generator pods reach `Running` |
+| 1.5.4 | Instance type matches NodePool | Provisioned node is `t3.medium` (cheapest allowed type) |
+
+### 1.6 Idle Scale-Down / Karpenter Consolidation
+
+| # | Scenario | Pass criteria |
+|---|----------|---------------|
+| 1.6.1 | Delete load-generator | Cluster CPU drops; Karpenter node becomes underutilized |
+| 1.6.2 | `do-not-disrupt` blocks consolidation | Karpenter node **retained** while `sample-stateful-0` still runs on it |
+| 1.6.3 | Delete stateful workload | StatefulSet + PVC removed; Karpenter node has no protected pods |
+| 1.6.4 | Karpenter consolidates empty node | After `consolidateAfter` (5m), `NodeClaim` deleted and extra node removed |
+| 1.6.5 | Cluster returns to bootstrap footprint | Only managed/bootstrap node remains |
+
+### 1.7 Goldilocks Label Bug + Hand-Managed VPA Fallback
+
+| # | Scenario | Pass criteria |
+|---|----------|---------------|
+| 1.7.1 | Goldilocks reads namespace `vpa-update-mode` label | Controller reconciles labeled namespace |
+| 1.7.2 | Label value lowercasing bug | Goldilocks emits `Inplaceorrecreate` (invalid) instead of `InPlaceOrRecreate` |
+| 1.7.3 | Fallback: remove Goldilocks labels from namespace | `goldilocks.fairwinds.com/enabled` and `vpa-update-mode` labels removed |
+| 1.7.4 | Fallback: apply hand-managed VPA CRs | VPAs created from `vpa/manifests/dev/vpa-template.yaml` pattern with correct `updateMode` |
+| 1.7.5 | Updater acts on hand-managed VPAs | `RecommendationProvided=True`, resource requests adjusted in-place |
 
 ---
 
-## 2. Pre-test Fixes Applied
+## 2. Chronological Test Story
 
-Before the workload test began, two install issues were resolved:
+### Phase 0 — Helmfile sync and addon install
 
-| Issue | Symptom | Fix |
-|-------|---------|-----|
-| VPA chart version | `chart "vpa" matching 4.7.3 not found` | Bumped to `4.12.1` (VPA app 1.6.0) in `helmfile.yaml.gotmpl` |
-| Goldilocks controller crash | `unknown flag: --vpa-update-mode` | Removed invalid global flag from `goldilocks-values.yaml.gotmpl`; update mode is set per-namespace via labels |
+**Command:** `helmfile -e eks-karpenter-vpa sync`
 
-After fixes, `helmfile -e eks-karpenter-vpa sync` deployed all four releases successfully.
+**Initial failure — VPA chart version:**
+- Helmfile referenced VPA chart `4.7.3`, which does not exist in `fairwinds-stable` (`4.7.2` jumps to `4.8.0`).
+- **Fix:** Bumped to `4.12.1` (VPA app version 1.6.0, full `InPlaceOrRecreate` support).
+- Re-ran sync; all four releases deployed.
 
----
+**Installed releases:**
 
-## 3. Test Story (Chronological)
+| Release | Namespace | Chart | App version |
+|---------|-----------|-------|-------------|
+| metrics-server | kube-system | 3.12.2 | 0.7.2 |
+| vpa | vpa | 4.12.1 | 1.6.0 |
+| goldilocks | goldilocks | 9.0.1 | v4.13.0 |
+| karpenter | kube-system | 1.5.0 | 1.5.0 |
 
-### 3.1 Baseline — cluster before workloads
-
-At test start the cluster had a single managed bootstrap node:
-
+**gp3 StorageClass** created via VPA presync hook:
 ```
-NAME                                       STATUS   AGE     VERSION
-ip-10-1-1-165.eu-west-1.compute.internal   Ready    165m    v1.35.5-eks-3385e9b
+storageclass.storage.k8s.io/gp3 created
 ```
+Verified: `gp3` is default, `WaitForFirstConsumer`, provisioner `ebs.csi.aws.com`.
 
-Addon pods were healthy:
+**VPA pods (all Running):**
+- `vpa-recommender-56bb5797d5-6nkcq`
+- `vpa-updater-7f8c558bfc-qwgq9`
+- `vpa-admission-controller-596f478985-7hf92`
 
-| Component | Namespace | Status |
-|-----------|-----------|--------|
-| metrics-server | kube-system | Running |
-| vpa-recommender | vpa | Running |
-| vpa-updater | vpa | Running |
-| vpa-admission-controller | vpa | Running |
-| goldilocks-controller | goldilocks | Running (after fix) |
-| goldilocks-dashboard | goldilocks | Running (2 replicas) |
-| karpenter | kube-system | Running |
-
-StorageClass `gp3` was the cluster default with `WaitForFirstConsumer` binding mode.
+**metrics-server:** `metrics-server-8476dffb6d-brtxq` Running; `kubectl top nodes` succeeded.
 
 ---
 
-### 3.2 T2 — Namespace and workload deployment
+### Phase 1 — Goldilocks controller crash (fixed)
 
-**Namespace created:**
+**Observation:** `goldilocks-controller` entered `CrashLoopBackOff`.
 
+**Root cause:** `goldilocks-values.yaml.gotmpl` set an invalid global flag:
+```yaml
+controller.flags.vpa-update-mode: "InPlaceOrRecreate"
+```
+Goldilocks v4.13.0 does not support `--vpa-update-mode`; update mode is set **per namespace via labels**.
+
+**Fix:** Removed the `controller.flags.vpa-update-mode` block. Redeployed with `helmfile -e eks-karpenter-vpa -l name=goldilocks sync`.
+
+**Result:** Controller `goldilocks-controller-5cbc44bfc8-mqfbg` Running (0 restarts).
+
+---
+
+### Phase 2 — Namespace and workload deployment
+
+**Namespace created and labeled:**
 ```bash
 kubectl create namespace vpa-demo
 kubectl label namespace vpa-demo goldilocks.fairwinds.com/enabled=true
 kubectl label namespace vpa-demo goldilocks.fairwinds.com/vpa-update-mode=InPlaceOrRecreate
 ```
 
-**Workloads deployed:**
+**Workloads applied:**
 
-| Resource | Name | Replicas | Initial requests |
-|----------|------|----------|------------------|
-| Deployment | `sample-stateless` | 1 | cpu: 10m, memory: 32Mi |
-| StatefulSet | `sample-stateful` | 1 | cpu: 10m, memory: 32Mi |
-| Deployment | `load-generator` | 3 | cpu: 200m, memory: 64Mi |
+| Resource | Name | Replicas | Initial CPU request | Notes |
+|----------|------|----------|---------------------|-------|
+| Deployment | `sample-stateless` | 1 | 10m | `polinux/stress`, 30s CPU spike / 90s sleep loop |
+| StatefulSet | `sample-stateful` | 1 | 10m | `busybox`, gp3 PVC, `karpenter.sh/do-not-disrupt: "true"` |
+| Deployment | `load-generator` | 3 | 200m each | `stress --cpu 1 --timeout 600s` per pod |
 
-`sample-stateless` runs a periodic CPU stress loop (`stress --cpu 1 --timeout 30s`, sleep 90s).  
-`load-generator` runs sustained CPU load (`stress --cpu 1 --timeout 600s`).  
-`sample-stateful` writes random data to a gp3 PVC and carries `karpenter.sh/do-not-disrupt: "true"`.
+**Bootstrap node before scale-out:** `ip-10-1-1-165.eu-west-1.compute.internal` (managed node group, `eu-west-1a`).
 
 ---
 
-### 3.3 T8 — Karpenter scale-out
+### Phase 3 — Karpenter scale-out
 
-Within ~20 seconds of deploying the workloads, 4 pods were Pending (3× load-generator + sample-stateful-0). Karpenter reacted immediately:
+**Trigger:** 3× `load-generator` pods (600m requested CPU total) + sample apps exceeded bootstrap node capacity; pods went `Pending`.
 
-```
-08:27:00  found provisionable pod(s): vpa-demo/sample-stateful-0
-08:27:00  computed new nodeclaim(s): 1
-08:27:02  launched nodeclaim default-99wtj  instance-type=t3.medium  zone=eu-west-1a
-08:27:23  registered node: ip-10-1-1-128.eu-west-1.compute.internal
-08:27:44  initialized nodeclaim default-99wtj
-```
+**Karpenter response (~8 seconds):**
+- `NodeClaim` `default-99wtj` created
+- Node `ip-10-1-1-128.eu-west-1.compute.internal` joined (`Ready`)
+- Instance type: **t3.medium** (on-demand)
+- Zone: **eu-west-1a**
 
-**Result:** Karpenter provisioned a `t3.medium` on-demand node in **~8 seconds** from first Pending pod to EC2 launch. Total time to Ready: ~44 seconds.
+**Pod placement after scheduling:**
+- `load-generator-*` pods → Karpenter node `ip-10-1-1-128`
+- `sample-stateful-0` → Karpenter node `ip-10-1-1-128`
+- `sample-stateless-*` → managed node `ip-10-1-1-165`
 
-**Pod placement after scale-out:**
-
-| Pod | Node | IP |
-|-----|------|----|
-| `load-generator-7c88d7577c-g4zgj` | ip-10-1-1-128 (Karpenter) | 10.1.1.189 |
-| `load-generator-7c88d7577c-gmt2l` | ip-10-1-1-128 (Karpenter) | 10.1.1.225 |
-| `load-generator-7c88d7577c-tg2qd` | ip-10-1-1-128 (Karpenter) | 10.1.1.145 |
-| `sample-stateful-0` | ip-10-1-1-128 (Karpenter) | 10.1.1.30 |
-| `sample-stateless-855d778fcd-bm2kg` | ip-10-1-1-165 (managed) | 10.1.1.144 |
+**Cluster nodes:** 2 (managed + Karpenter-provisioned).
 
 ---
 
-### 3.4 T2 / T6 — PVC zone safety
+### Phase 4 — PVC zone safety
 
-PVC `data-sample-stateful-0` bound to volume `pvc-1bc42262-6f3d-480d-923a-4278beff2c15` on StorageClass `gp3`.
+**PVC:** `data-sample-stateful-0` (gp3, 1Gi) → `Bound`
 
-PV node affinity:
+**Zone verification:**
+- Pod `sample-stateful-0` scheduled on `ip-10-1-1-128`
+- Node zone: `eu-west-1a`
+- PV node affinity: `topology.kubernetes.io/zone In [eu-west-1a]`
 
-```json
-{
-  "required": {
-    "nodeSelectorTerms": [{
-      "matchExpressions": [{
-        "key": "topology.kubernetes.io/zone",
-        "operator": "In",
-        "values": ["eu-west-1a"]
-      }]
-    }]
-  }
-}
-```
-
-Pod `sample-stateful-0` ran on `ip-10-1-1-128` in `eu-west-1a` — **same zone as the volume**. No volume node-affinity conflict.
-
-**Result: T2 PASS, T6 PASS**
+**Result:** `WaitForFirstConsumer` binding ensured PVC and pod share the same AZ. No cross-zone volume conflict.
 
 ---
 
-### 3.5 T3 / T4 — Goldilocks label bug and VPA fallback
+### Phase 5 — Goldilocks label bug and VPA fallback
 
-Goldilocks controller attempted to create VPAs for labeled namespaces but failed:
-
+**Observation:** Goldilocks controller logs showed VPA creation failures:
 ```
-Error creating VPA/goldilocks-sample-stateful:
-  spec.updatePolicy.updateMode: Unsupported value: "Inplaceorrecreate"
-  supported values: "Off", "Initial", "Recreate", "InPlaceOrRecreate", "Auto"
+Unsupported value: "Inplaceorrecreate"
 ```
+Goldilocks lowercased the namespace label `InPlaceOrRecreate` → `Inplaceorrecreate`, which the VPA API rejects.
 
-Goldilocks v4.13.0 lowercases the namespace label value (`InPlaceOrRecreate` → `Inplaceorrecreate`), which the VPA API rejects. This is a known Goldilocks bug.
+**Mitigation:**
+1. Removed Goldilocks labels from `vpa-demo`:
+   ```bash
+   kubectl label namespace vpa-demo goldilocks.fairwinds.com/enabled-
+   kubectl label namespace vpa-demo goldilocks.fairwinds.com/vpa-update-mode-
+   ```
+2. Applied hand-managed VPA CRs for `sample-stateless`, `sample-stateful`, and `load-generator` with explicit `updateMode: InPlaceOrRecreate`.
 
-**Mitigation (plan fallback path):** Removed Goldilocks managed labels from `vpa-demo` and applied hand-managed VPA CRs:
+**Result:** Three VPAs created; `sample-stateless` immediately showed `RecommendationProvided=True`.
 
+---
+
+### Phase 6 — VPA recommendations and in-place resize
+
+**After ~2 minutes of sustained load**, recommender produced targets:
+
+| VPA | Workload | Original request | VPA target | Applied request |
+|-----|----------|------------------|------------|-----------------|
+| `load-generator` | Deployment (3 pods) | 200m CPU, 64Mi | **813m** CPU | Pod `load-generator-7c88d7577c-tg2qd` → 813m; others still 200m (rolling) |
+| `sample-stateless` | Deployment | 10m CPU, 32Mi | **1 CPU**, 100Mi | **1 CPU**, 100Mi |
+| `sample-stateful` | StatefulSet | 10m CPU, 32Mi | **15m** CPU, 100Mi | **15m**, 100Mi |
+
+**Node load at peak:** Karpenter node at **103% CPU** (`kubectl top nodes`).
+
+**In-place resize evidence:**
+- **Restart count: 0** on all pods in `vpa-demo`
+- `sample-stateful-0` annotation: `vpaInPlaceUpdated: "true"`
+- `sample-stateless-855d778fcd-bm2kg` annotation: `vpaInPlaceUpdated: "true"` (confirmed at report time)
+- No `EvictedByVPA` events
+
+**Current `sample-stateless` pod (post-test):**
+- Requests: `cpu: 1`, `memory: 100Mi`
+- Limits: `cpu: 100` (display quirk), `memory: 800Mi`
+- `vpaInPlaceUpdated: "true"`
+
+---
+
+### Phase 7 — Load removal and consolidation (blocked)
+
+**Action:** Deleted `load-generator` Deployment.
+
+**Expected:** Karpenter consolidates underutilized `ip-10-1-1-128` after 5 minutes.
+
+**Observed (7-minute poll):** Node **not** removed.
+
+**Root cause:** `sample-stateful-0` remained on `ip-10-1-1-128` with:
+```yaml
+karpenter.sh/do-not-disrupt: "true"
+```
+Karpenter correctly refused to evict the protected pod. Consolidation blocked — **expected behavior**.
+
+**Pod placement at this point:**
+- `ip-10-1-1-128`: `sample-stateful-0` only
+- `ip-10-1-1-165`: `sample-stateless-*`
+
+---
+
+### Phase 8 — Stateful teardown and successful consolidation
+
+**Action:**
 ```bash
-kubectl label namespace vpa-demo goldilocks.fairwinds.com/enabled-
-kubectl apply -f vpa-objects.yaml   # sample-stateless, sample-stateful, load-generator
+kubectl delete statefulset sample-stateful -n vpa-demo
+kubectl delete pvc data-sample-stateful-0 -n vpa-demo
 ```
 
-All three VPAs created with `updateMode: InPlaceOrRecreate` and `minReplicas: 1`.
-
-**Result: T3 FAIL (Goldilocks bug), T4 PASS (fallback works)**
+**Result:** Karpenter node became empty of protected workloads. After `consolidateAfter` elapsed, Karpenter removed the extra node.
 
 ---
 
-### 3.6 T5 / T9 — VPA recommendations and in-place resize
+### Phase 9 — Final cluster state (verified at report time)
 
-After ~2 minutes of sustained load, the VPA recommender produced:
-
-| VPA | Container | Lower bound | Target | Upper bound | Uncapped target |
-|-----|-----------|-------------|--------|-------------|-----------------|
-| `load-generator` | load | 414m CPU | **813m CPU** | 2 CPU | 813m CPU |
-| `sample-stateless` | app | 15m CPU | **1 CPU** | 1 CPU | 1101m CPU |
-| `sample-stateful` | app | 15m CPU | **15m CPU** | 500m CPU | 15m CPU |
-
-**Live pod CPU usage at peak (metrics-server):**
-
-| Pod | CPU usage |
-|-----|-----------|
-| load-generator (×3) | 646–668m each |
-| sample-stateless | 0m (between stress cycles) |
-| sample-stateful | 4m |
-
-**VPA updater applied in-place resize (no pod restarts):**
-
-| Pod | Before (requests) | After (requests) | Restarts |
-|-----|-------------------|--------------------|----------|
-| `load-generator-tg2qd` | cpu: 200m | cpu: **813m** | 0 |
-| `sample-stateless-bm2kg` | cpu: 10m | cpu: **1** | 0 |
-| `sample-stateful-0` | cpu: 10m | cpu: **15m** | 0 |
-
-Annotation `vpaInPlaceUpdated: "true"` appeared on `sample-stateful-0`, confirming the updater used in-place resize rather than eviction.
-
-**Node load at peak:**
-
-```
-ip-10-1-1-128  CPU: 2001m (103%)   MEMORY: 469Mi (14%)
-ip-10-1-1-165  CPU: 86m   (4%)     MEMORY: 972Mi (29%)
-```
-
-**Result: T5 PASS, T9 PASS**
-
----
-
-### 3.7 T7 — `do-not-disrupt` blocks consolidation
-
-At 11:33, `load-generator` Deployment was deleted to simulate end-of-day traffic drop. After 7 minutes of polling, the Karpenter node `ip-10-1-1-128` was **not removed**.
-
-Investigation:
-
-- `sample-stateful-0` was still running on `ip-10-1-1-128`
-- Pod annotation: `karpenter.sh/do-not-disrupt: "true"`
-- Karpenter disruption controller made no consolidation attempts in logs
-
-This is **correct behavior** — the PVC guardrail prevents Karpenter from evicting stateful pods during consolidation.
-
-**Result: T7 PASS**
-
----
-
-### 3.8 T10 — Karpenter consolidation after stateful workload removed
-
-At 11:41, `sample-stateful` StatefulSet and its PVC were deleted to free the Karpenter node. After the `consolidateAfter: 5m` window elapsed, Karpenter removed the node.
-
-**Final cluster state:**
-
-```
+```text
+$ kubectl get nodes
 NAME                                       STATUS   AGE
 ip-10-1-1-165.eu-west-1.compute.internal   Ready    3h23m
 
-NodeClaims: (none)
-Pods in vpa-demo:
-  sample-stateless-855d778fcd-bm2kg  1/1 Running  (on managed node)
+$ kubectl get nodeclaim
+No resources found
+
+$ kubectl get pods -n vpa-demo
+NAME                                READY   STATUS    RESTARTS   NODE
+sample-stateless-855d778fcd-bm2kg   1/1     Running   0          ip-10-1-1-165
+
+$ kubectl get nodepool
+NAME      NODECLASS   NODES   READY
+default   default     0       True
 ```
 
-The Karpenter-provisioned `t3.medium` (`default-99wtj` / `ip-10-1-1-128`) was terminated. Cluster returned to a single bootstrap node.
+**Consolidation verdict:** **PASS** — Karpenter node `ip-10-1-1-128` (t3.medium, NodeClaim `default-99wtj`) was removed after the stateful workload and PVC were deleted. Cluster returned to a single managed/bootstrap node.
 
-**Result: T10 PASS**
+**Remaining artifacts:**
+- `sample-stateless` Deployment and VPA still active
+- Orphan VPAs `load-generator` and `sample-stateful` remain (targets deleted; `PROVIDED=False`)
 
 ---
 
-## 4. Results Summary
+## 3. Summary
 
-| ID | Scenario | Result | Notes |
-|----|----------|--------|-------|
-| T1 | Addon health | **PASS** | All add-ons running after two install fixes |
-| T2 | gp3 zone safety | **PASS** | PVC bound in pod's AZ (`eu-west-1a`) |
-| T3 | Goldilocks labeling | **FAIL** | Label lowercasing bug in Goldilocks v4.13.0 |
-| T4 | Hand-managed VPA fallback | **PASS** | Direct VPA CRs work with `InPlaceOrRecreate` |
-| T5 | In-place VPA resize | **PASS** | 0 restarts; `vpaInPlaceUpdated=true` |
-| T6 | Stateful + PVC | **PASS** | No zone conflict; in-place resize on stateful pod |
-| T7 | do-not-disrupt guardrail | **PASS** | Node not removed while annotated pod ran |
-| T8 | Karpenter scale-out | **PASS** | `t3.medium` in ~8s |
-| T9 | VPA scale-up under load | **PASS** | Requests raised to match observed CPU |
-| T10 | Karpenter consolidation | **PASS** | Extra node removed after workloads drained |
+| Area | Result |
+|------|--------|
+| Addon health | **PASS** — all components Running |
+| gp3 / zone safety | **PASS** — PVC bound in `eu-west-1a` matching pod |
+| VPA in-place resize | **PASS** — 0 restarts, `vpaInPlaceUpdated=true` |
+| Karpenter scale-out | **PASS** — t3.medium in ~8s |
+| do-not-disrupt guard | **PASS** — blocked consolidation while stateful pod ran |
+| Karpenter consolidation | **PASS** — extra node removed after stateful deleted |
+| Goldilocks auto-VPA | **FAIL** — `InPlaceOrRecreate` lowercasing bug; workaround via hand-managed VPAs |
 
-**Overall: 9/10 PASS, 1 FAIL (Goldilocks label bug — mitigated by hand-managed VPA CRs)**
+### Fixes applied during test
 
----
+1. VPA chart `4.7.3` → `4.12.1` (chart version did not exist)
+2. Removed invalid Goldilocks `--vpa-update-mode` controller flag
+3. Removed Goldilocks namespace labels; applied hand-managed VPA CRs with correct `InPlaceOrRecreate` casing
 
-## 5. Recommendations
+### Recommended follow-ups
 
-1. **Goldilocks:** Do not rely on `goldilocks.fairwinds.com/vpa-update-mode=InPlaceOrRecreate` until Goldilocks fixes label value casing. Use hand-managed VPA CRs from `vpa/manifests/dev/vpa-template.yaml` for dev workloads.
-2. **Stateful workloads:** Always annotate PVC-backed pods with `karpenter.sh/do-not-disrupt: "true"` and use the `gp3` StorageClass (`WaitForFirstConsumer`).
-3. **Consolidation timing:** With `consolidateAfter: 5m`, expect ~5–7 minutes from last workload removal to node termination (plus time for `do-not-disrupt` pods to be removed first).
-4. **Re-run validation:** To repeat this test:
-
-```bash
-cd helm-addons
-helmfile -e eks-karpenter-vpa sync
-kubectl apply -f examples/sample-stateless.yaml
-kubectl apply -f examples/sample-stateful.yaml
-kubectl apply -f /path/to/vpa-objects.yaml   # hand-managed VPAs
-kubectl apply -f /path/to/load-generator.yaml
-```
+- Track [Goldilocks issue](https://github.com/FairwindsOps/goldilocks) for `InPlaceOrRecreate` label casing fix
+- Clean up orphan VPAs: `kubectl delete vpa load-generator sample-stateful -n vpa-demo`
+- Re-run consolidation test with only stateless workloads to validate faster scale-down without `do-not-disrupt` blocker
