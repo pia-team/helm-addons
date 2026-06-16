@@ -11,9 +11,11 @@ profile: dev
 # --- Karpenter ---
 karpenter_manifest_dir: karpenter/manifests/dev
 
-# Consolidation: remove underutilized nodes after 5 min (anti-flap, delayed shrink)
+# Consolidation: remove underutilized nodes only after 2 hours of inactivity.
+# This keeps dev workloads responsive without flapping, while still allowing
+# cost savings during long idle periods (e.g. overnight).
 karpenter_consolidation_policy: WhenEmptyOrUnderutilized
-karpenter_consolidate_after: 5m
+karpenter_consolidate_after: 2h
 
 # Instance families (t-series only for cost)
 karpenter_instance_types:
@@ -31,6 +33,11 @@ karpenter_memory_limit: 80Gi
 # min-replicas=1 allows the updater to act on single-replica deployments.
 vpa_update_mode: InPlaceOrRecreate
 vpa_min_replicas: "1"
+
+# Updater aggressiveness: low eviction-tolerance = act quickly and accept more
+# eviction pressure; short pod-lifetime threshold = resize young pods too.
+vpa_eviction_tolerance: "0.25"
+vpa_pod_lifetime_update_threshold: 1h
 
 # Goldilocks namespace label value for this profile
 goldilocks_vpa_update_mode: InPlaceOrRecreate

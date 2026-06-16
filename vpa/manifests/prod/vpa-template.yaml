@@ -1,8 +1,10 @@
-# VPA template for the prod profile.
+# Fallback / hand-managed VPA template for the prod profile.
 #
-# updateMode: Off — VPA collects recommendations but applies nothing automatically.
-# Engineers review `kubectl get vpa -A` and apply approved values via Helm
-# or resource patches during a maintenance window.
+# updateMode: InPlaceOrRecreate — the prod profile enables in-place resize, but
+# the updater is configured conservatively (high eviction tolerance, 24h minimum
+# pod lifetime). This CR just ensures the correct mode is set when Goldilocks
+# does not propagate it.
+# minReplicas: 2 prevents the updater from acting on single-replica prod workloads.
 apiVersion: autoscaling.k8s.io/v1
 kind: VerticalPodAutoscaler
 metadata:
@@ -14,7 +16,7 @@ spec:
     kind: Deployment
     name: <deployment-name>
   updatePolicy:
-    updateMode: "Off"
+    updateMode: InPlaceOrRecreate
     minReplicas: 2
   resourcePolicy:
     containerPolicies:

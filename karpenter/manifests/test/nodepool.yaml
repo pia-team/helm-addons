@@ -38,7 +38,8 @@ spec:
     memory: 200Gi
 
   disruption:
-    # WhenEmpty: only consolidate fully empty nodes.
+    # WhenEmpty: only consolidate fully empty nodes, and wait 4 hours of
+    # inactivity before doing so. This matches profiles/test.yaml.
     # Running pods are never moved, giving test workloads a stable environment.
     consolidationPolicy: WhenEmpty
-    consolidateAfter: 10m
+    consolidateAfter: 4h

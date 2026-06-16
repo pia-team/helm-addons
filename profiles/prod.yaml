@@ -11,9 +11,12 @@ profile: prod
 # --- Karpenter ---
 karpenter_manifest_dir: karpenter/manifests/prod
 
-# Conservative consolidation: long delay before removing nodes
+# Conservative consolidation: remove empty nodes only after 12 hours of
+# inactivity. This keeps production warm through nights and weekends and
+# avoids Monday-morning cold-start latency. Scale-up is still immediate when
+# pending pods exist.
 karpenter_consolidation_policy: WhenEmpty
-karpenter_consolidate_after: 15m
+karpenter_consolidate_after: 12h
 
 karpenter_instance_types:
   - m5.large
@@ -26,9 +29,17 @@ karpenter_cpu_limit: "200"
 karpenter_memory_limit: 800Gi
 
 # --- VPA ---
-# Off: VPA only records recommendations; no automatic pod changes.
-# Engineers apply approved values via Helm values or resource patches.
-vpa_update_mode: "Off"
+# InPlaceOrRecreate in prod: recommendations are applied in-place with very
+# conservative updater settings. Eviction is almost never triggered because
+# eviction-tolerance is high and pods must be at least 24 hours old before the
+# updater considers them. This gives engineers confidence that sizing changes
+# happen gently.
+vpa_update_mode: InPlaceOrRecreate
 vpa_min_replicas: "2"
 
-goldilocks_vpa_update_mode: "Off"
+# Conservative updater: high eviction tolerance (resize only when there is
+# substantial headroom) and a 24-hour minimum pod lifetime before acting.
+vpa_eviction_tolerance: "0.75"
+vpa_pod_lifetime_update_threshold: 24h
+
+goldilocks_vpa_update_mode: InPlaceOrRecreate

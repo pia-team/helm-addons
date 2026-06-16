@@ -44,8 +44,10 @@ spec:
     memory: 800Gi
 
   disruption:
-    # Conservative: remove only fully empty nodes after a long delay.
-    # Karpenter respects PodDisruptionBudgets and the karpenter.sh/do-not-disrupt
+    # Conservative: remove only fully empty nodes after 12 hours of inactivity.
+    # This matches profiles/prod.yaml and keeps production warm through
+    # nights/weekends for rapid Monday-morning scale-up. Karpenter still
+    # respects PodDisruptionBudgets and the karpenter.sh/do-not-disrupt
     # annotation — stateful pods are never forcibly moved.
     consolidationPolicy: WhenEmpty
-    consolidateAfter: 15m
+    consolidateAfter: 12h
