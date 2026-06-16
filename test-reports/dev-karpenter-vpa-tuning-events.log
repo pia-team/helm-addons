@@ -1,0 +1,16 @@
+=== Phase 1: Deploy load-generator at 2026-06-16T14:27:00Z ===
+deployment.apps/load-generator created
+Load-generator deployed at 2026-06-16T14:27:01Z
+=== Phase 2: Deploy sample-stateless at 2026-06-16T14:28:19Z ===
+namespace/vpa-demo unchanged
+deployment.apps/sample-stateless created
+sample-stateless deployed at 2026-06-16T14:28:20Z
+=== Workaround: remove Goldilocks labels and apply hand-managed VPAs at 2026-06-16T14:34:52Z ===
+namespace/vpa-demo unlabeled
+verticalpodautoscaler.autoscaling.k8s.io/load-generator created
+verticalpodautoscaler.autoscaling.k8s.io/sample-stateless created
+=== Phase 2: Observing in-place resize at 2026-06-16T14:35:45Z ===
+=== Phase 3: Delete load-generator and sample-stateless at 2026-06-16T14:36:57Z ===
+Workloads deleted at 2026-06-16T14:36:58Z
+2026-06-16T14:37:39Z - Consolidation cooldown started. Node ip-10-1-1-213 should NOT be removed before 2026-06-16T16:37:39Z
+2026-06-16T14:27:12Z
