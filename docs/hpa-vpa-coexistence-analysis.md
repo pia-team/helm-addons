@@ -542,7 +542,65 @@ Before implementation, the following decisions need to be made:
 
 ---
 
-## 12. Conclusion
+## 12. Research: Can a Better Unified Solution Be Built?
+
+### 12.1 Target behavior, restated as a formal requirement
+
+The desired autonomous behavior for every DNext production service is:
+
+1. **Start at the HPA baseline.** The Deployment begins with exactly the `minReplicas` count defined in its HPA.
+2. **VPA grows resources first.** As load increases, VPA uses `InPlaceOrRecreate` to raise per-pod CPU and memory requests, up to a defined upper bound (`cpu: 2000m`, `memory: 2000Mi` in the default profile, or more conservatively `1800m`/`1800Mi` for safety headroom).
+3. **HPA adds pods only after VPA is saturated.** If real per-pod load remains high after VPA reaches its upper bound, HPA provisions additional pods.
+4. **Slow scale-down to avoid conflict.** When load decreases, scale-down must be gradual so HPA does not remove pods while VPA is still recalculating requests.
+5. **Return to baseline at low load.** Eventually, when traffic stays low for the configured windows, HPA should return to `minReplicas` and VPA should shrink CPU/memory requests back within its allowed range.
+
+In short: **vertical scaling is the first response, horizontal scaling is the second response, and both controllers must have decoupled measurement signals so they do not oscillate.**
+
+### 12.2 Google’s Multi-Dimensional Pod Autoscaler (MDPA)
+
+Google has researched a unified autoscaler that treats **replica count** and **resource requests** as a single optimization problem, rather than running two independent controllers. The concept is usually referred to in the Kubernetes autoscaling community as a **Multi-Dimensional Pod Autoscaler (MDPA)** or **Multidimensional Autoscaler**.
+
+Core ideas from that research:
+
+- **Single decision loop.** One controller has full visibility of both dimensions (horizontal and vertical) and chooses the cheapest combination that keeps the workload within its performance target.
+- **Cost-aware optimization.** It models the trade-off between “make each pod bigger” (vertical) and “add more pods” (horizontal), picking the cheaper option given the current node capacity and pricing.
+- **Constraint-aware.** It respects upper bounds on per-pod resources, min/max replicas, node capacity, and PodDisruptionBudgets in one pass.
+- **No utilization percentage conflict.** Because the same controller owns both decisions, changing the request does not trick a separate horizontal scaler into a wrong decision.
+
+### 12.3 Can MDPA logic be mimicked with today’s Kubernetes tools?
+
+As of 2026, **MDPA is not a production-ready, upstream Kubernetes API or controller**. It exists as research, design proposals, and experimental discussions in the autoscaling special-interest group. Therefore it cannot be deployed directly in DNext today.
+
+However, **its core logic can be approximated** with the existing HPA + VPA stack if we change the signal that HPA reacts to:
+
+| MDPA principle | Approximation with current HPA + VPA |
+|----------------|--------------------------------------|
+| Single decision loop | Run both controllers, but make HPA react to **absolute real usage (`AverageValue`)**, not a ratio that VPA changes |
+| Vertical-first growth | Set VPA `minAllowed` to the baseline request and `maxAllowed` to ~90% of the container limit |
+| Horizontal fallback | Set HPA `AverageValue` target at ~50% of the VPA CPU cap and ~67% of the VPA memory cap |
+| Slow scale-down | Long HPA `scaleDown.stabilizationWindowSeconds` (e.g. 300s) and conservative VPA histogram decay |
+| Return to baseline | When absolute load stays low, HPA scales down to `minReplicas`; VPA then lowers requests within its window |
+
+### 12.4 Practical recommendation
+
+Until a true MDPA controller is available upstream, the **HPA `AverageValue` + VPA `InPlaceOrRecreate`** design described in Sections 6–11 is the closest production-safe approximation.
+
+To move closer to MDPA behavior in the future:
+
+1. **Monitor upstream Kubernetes autoscaling SIG** for MDPA or equivalent proposals.
+2. **Consider a custom in-house autoscaler** only if the scale of DNext justifies the engineering cost. A custom controller would need cluster-wide state, cost models, and careful safety guards; it is not a small project.
+3. **Keep the HPA/VPA split but improve signals.** The biggest improvement is switching HPA to `AverageValue` today. Everything else is tuning around the edges.
+
+### 12.5 Summary of research finding
+
+- **MDPA logic is the theoretically correct answer** to the HPA/VPA conflict.
+- **It is not yet a deployable upstream project**, so DNext must approximate it.
+- **The recommended approximation is already the plan in this document**: HPA on `AverageValue` (absolute real usage) and VPA on `InPlaceOrRecreate` with `minAllowed`/`maxAllowed` aligned to container requests and limits.
+- This approximation satisfies the formal requirement: VPA scales up first, HPA scales out second, slow scale-down prevents thrashing, and the system returns to `minReplicas` + baseline requests when load is low.
+
+---
+
+## 13. Conclusion
 
 Running HPA and VPA together for both CPU and memory is achievable, but **only if HPA is configured with `AverageValue` targets**, not CPU utilization percentages. The current `orbitant/app` HPA template uses `Utilization`, which creates a mathematical conflict with VPA.
 
