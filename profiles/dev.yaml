@@ -17,7 +17,11 @@ karpenter_manifest_dir: karpenter/manifests/dev
 karpenter_consolidation_policy: WhenEmptyOrUnderutilized
 karpenter_consolidate_after: 2h
 
-# Instance families (t-series only for cost)
+# Instance families: t3 is the cheapest x86 burstable option in eu-west-1.
+# We intentionally do NOT include Graviton (t4g) because the NodePool pins to
+# amd64; mixing architectures would break container image assumptions.
+# t3 is cost-optimized for dev: you get CPU burst credits for short spikes
+# and the lowest on-demand price per vCPU.
 karpenter_instance_types:
   - t3.medium
   - t3.large

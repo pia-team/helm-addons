@@ -1,7 +1,7 @@
-# prod profile — high availability first, VPA as recommendation advisor.
+# prod profile — high availability first, gentle in-place VPA resize.
 #
 # Goals:
-#   - VPA in recommendation-only mode (engineers review before applying)
+#   - InPlaceOrRecreate VPA with very conservative updater settings
 #   - On-demand m/r-series for predictable, non-burstable performance
 #   - Karpenter scales down conservatively; never disrupts PVC-bound or PDB-protected pods
 #   - Multi-AZ spread baked into NodePool topology requirements
@@ -18,12 +18,18 @@ karpenter_manifest_dir: karpenter/manifests/prod
 karpenter_consolidation_policy: WhenEmpty
 karpenter_consolidate_after: 12h
 
+# Instance families: m6a for general-purpose compute, r6a for memory-heavy
+# workloads. Both are 3rd-gen AMD EPYC (Milan) and offer better
+# price/performance than the older m5/r5 families in eu-west-1.
+# We do NOT use r7 because the goal is "performance optimized in a cost
+# optimized manner"; r7 is premium priced. m6a/r6a are the x86 perf/$
+# sweet spot for production.
 karpenter_instance_types:
-  - m5.large
-  - m5.xlarge
-  - m5.2xlarge
-  - r5.large
-  - r5.xlarge
+  - m6a.large
+  - m6a.xlarge
+  - m6a.2xlarge
+  - r6a.large
+  - r6a.xlarge
 
 karpenter_cpu_limit: "200"
 karpenter_memory_limit: 800Gi

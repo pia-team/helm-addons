@@ -25,23 +25,17 @@ spec:
           operator: In
           values: ["on-demand"]
 
-        # Allow a range of cost-efficient instance families.
-        # Karpenter picks the cheapest available type that fits the pending pod.
+        # Cost-optimized instance families for dev.
+        # t3 is the cheapest x86 burstable option in eu-west-1. Karpenter picks
+        # the smallest type that fits the pending pod, so t3.medium is the
+        # default and t3.large/xlarge are used only when requested resources
+        # exceed the smaller sizes.
         - key: node.kubernetes.io/instance-type
           operator: In
           values:
-            # t-series (burstable, cost-efficient — default)
             - t3.medium
             - t3.large
             - t3.xlarge
-            # m-series (general purpose — uncomment for production workloads)
-            # - m5.large
-            # - m5.xlarge
-            # - m5.2xlarge
-            # r-series (memory optimised — uncomment for memory-intensive workloads)
-            # - r5.large
-            # - r5.xlarge
-            # - r5.2xlarge
 
       # How long a node may stay empty before Karpenter removes it.
       expireAfter: Never

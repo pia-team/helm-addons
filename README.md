@@ -51,9 +51,9 @@ Each environment file sets a `profile:` key that controls VPA update mode, Karpe
 
 | Profile | VPA mode | VPA updater stance | Karpenter consolidation | Scale-up | Use case |
 |---------|----------|-------------------|------------------------|----------|----------|
-| `dev` | `InPlaceOrRecreate` | Aggressive (`eviction-tolerance: 0.25`, 1h pod lifetime) | `WhenEmptyOrUnderutilized`, 2h cooldown | Instant on pending pods | Minimal cost, single replicas, dev environments |
-| `test` | `InPlaceOrRecreate` | Moderate (`eviction-tolerance: 0.5`, 6h pod lifetime) | `WhenEmpty`, 4h cooldown | Instant on pending pods | Stability, no surprise evictions |
-| `prod` | `InPlaceOrRecreate` | Conservative (`eviction-tolerance: 0.75`, 24h pod lifetime) | `WhenEmpty`, 12h cooldown | Instant on pending pods | HA, gentle in-place resizing |
+| `dev` | `InPlaceOrRecreate` | Aggressive (`eviction-tolerance: 0.25`, 1h pod lifetime) | `WhenEmptyOrUnderutilized`, 2h cooldown | Instant on pending pods | `t3` only — cheapest x86 burstable |
+| `test` | `InPlaceOrRecreate` | Moderate (`eviction-tolerance: 0.5`, 6h pod lifetime) | `WhenEmpty`, 4h cooldown | Instant on pending pods | `t3` + `m6a` — cost-optimized stability |
+| `prod` | `InPlaceOrRecreate` | Conservative (`eviction-tolerance: 0.75`, 24h pod lifetime) | `WhenEmpty`, 12h cooldown | Instant on pending pods | `m6a` + `r6a` — best x86 perf/$ for production |
 
 > **Scale-up is always rapid.** Karpenter creates a `NodeClaim` as soon as a pod is unschedulable, regardless of the consolidation cooldown.
 >
