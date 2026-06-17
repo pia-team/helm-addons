@@ -19,12 +19,17 @@ The goal is to run **both Horizontal Pod Autoscaler (HPA) and Vertical Pod Autos
 2. **VPA is allowed to resize CPU and memory** of running pods in-place using `InPlaceOrRecreate`.
 3. **VPA must never exceed hard container limits**, e.g.:
    ```yaml
-   limits:
-     cpu: 2000m
-     memory: 2000Mi
+   resources:
+     limits:
+       cpu: 2000m
+       memory: 2000Mi
+     requests:
+       cpu: 20m
+       memory: 500Mi
    ```
-4. **VPA should act first.** It should grow per-pod resources up to its own upper cap before HPA adds more pods.
-5. **HPA should add pods only when VPA can no longer help.** If load is still high after VPA hits its upper bound, HPA provisions new pods.
+   VPA `maxAllowed` will be capped at 90% of these limits (`cpu: 1800m`, `memory: 1800Mi`) and `minAllowed` will match the static requests (`cpu: 20m`, `memory: 500Mi`).
+4. **VPA should act first.** It should grow per-pod requests from the static baseline (`cpu: 20m`, `memory: 500Mi`) up to `maxAllowed` (`cpu: 1800m`, `memory: 1800Mi`) before HPA adds more pods.
+5. **HPA should add pods only when VPA can no longer help.** If real per-pod load is still above the `AverageValue` target after VPA hits its CPU cap (`1800m`), HPA provisions new pods.
 6. **HPA should act slower than VPA** so the two controllers do not fight.
 7. **When HPA adds pods**, real CPU/memory usage per pod drops, so VPA will want to lower requests again. The system should not enter a scale-up/scale-down loop.
 8. **Desired asymmetric VPA behavior:** grow resource requests quickly when load increases, but decrease them slowly when load drops, to maintain stability.
@@ -190,7 +195,7 @@ The VPA recommender is intentionally stable and histogram-based. It does not sup
 
 Switch HPA from **CPU utilization** to **absolute average usage** (`type: AverageValue`). VPA then controls per-pod CPU/memory requests freely, and HPA adds pods only when real per-pod load exceeds a fixed threshold.
 
-Example HPA metric:
+Example HPA metric, aligned with the DNext VPA boundaries:
 
 ```yaml
 metrics:
@@ -199,22 +204,39 @@ metrics:
       name: cpu
       target:
         type: AverageValue
-        averageValue: "800m"   # scale when real CPU per pod > 800m
+        averageValue: "900m"   # 50% of VPA maxAllowed cpu (1800m)
 ```
 
 Now the desired sequence works:
 
-1. Pods start at `minReplicas`.
+1. Pods start at `minReplicas` with requests `cpu: 20m`, `memory: 500Mi`.
 2. Load grows; real usage per pod rises.
-3. VPA raises CPU request in-place up to `maxAllowed` (e.g. `1800m`).
-4. If real usage is still above `800m` per pod after VPA hits its cap, HPA adds pods.
-5. More pods spread the load; real usage per pod drops below `800m`; HPA may scale down only when load truly falls.
+3. VPA raises CPU request in-place up to `maxAllowed` (`cpu: 1800m`, `memory: 1800Mi`).
+4. If real usage is still above `900m` per pod after VPA hits its CPU cap, HPA adds pods.
+5. More pods spread the load; real usage per pod drops below `900m`; HPA may scale down only when load truly falls.
 
 ### 6.2 Why `AverageValue` preserves the hard limit intent
 
-With current `Utilization: 50`, the HPA target moves whenever VPA changes the request. With `AverageValue: 800m`, the target is fixed to **actual usage**. The container limit (`2000m`) still protects the pod, and VPA’s `maxAllowed` (`1800m`) prevents VPA from pushing requests close enough to the limit that the pod has no burst room.
+With current `Utilization: 50`, the HPA target moves whenever VPA changes the request. With `AverageValue: 900m`, the target is fixed to **actual usage**. The container limit (`2000m`) still protects the pod, and VPA’s `maxAllowed` (`1800m`) prevents VPA from pushing requests close enough to the limit that the pod has no burst room.
 
-### 6.3 VPA configuration for the pattern
+### 6.3 VPA configuration aligned with DNext defaults
+
+The DNext default container resources are:
+
+```yaml
+resources:
+  limits:
+    cpu: 2000m
+    memory: 2000Mi
+  requests:
+    cpu: 20m
+    memory: 500Mi
+```
+
+VPA boundaries should be aligned with these values:
+
+- **`minAllowed`** is set to the static `requests` the pod starts with. This prevents VPA from shrinking below the deployment's own baseline and avoids scheduling surprises.
+- **`maxAllowed`** is set to 90% of the hard `limits`, leaving 10% headroom so the pod can burst without immediately hitting its container limit.
 
 ```yaml
 apiVersion: autoscaling.k8s.io/v1
@@ -234,11 +256,11 @@ spec:
           - memory
         controlledValues: RequestsAndLimits
         minAllowed:
-          cpu: 100m
-          memory: 128Mi
+          cpu: 20m          # matches deployment request floor
+          memory: 500Mi     # matches deployment request floor
         maxAllowed:
-          cpu: 1800m          # 200m headroom below 2000m limit
-          memory: 1800Mi      # 200Mi headroom below 2000Mi limit
+          cpu: 1800m        # 90% of 2000m limit (10% headroom)
+          memory: 1800Mi    # 90% of 2000Mi limit (10% headroom)
 ```
 
 Key points:
@@ -247,11 +269,16 @@ Key points:
 - `maxAllowed` is the safety guard that prevents VPA from exceeding the hard container limits.
 - `minAllowed` prevents VPA from shrinking resources so much that the pod becomes unstable.
 
-### 6.4 HPA `AverageValue` targets
+### 6.4 HPA `AverageValue` targets aligned with DNext defaults
 
-The HPA target should be a fraction of the VPA `maxAllowed`. A practical starting point is **50% of `maxAllowed` CPU** and, if memory scaling is enabled, **60–70% of `maxAllowed` memory**.
+The default container limits are `cpu: 2000m` and `memory: 2000Mi`. With VPA `maxAllowed` set to 90% of limits, the aligned HPA targets are:
 
-Example for a service with `limits.cpu: 2000m`, `limits.memory: 2000Mi`, and VPA `maxAllowed` set to 90% of limits:
+| Resource | Limit | VPA maxAllowed | HPA `AverageValue` target | Rationale |
+|----------|-------|----------------|--------------------------|-----------|
+| CPU | `2000m` | `1800m` | `900m` | 50% of VPA maxAllowed; HPA adds pods only after VPA has already grown close to the cap |
+| Memory | `2000Mi` | `1800Mi` | `1200Mi` | ~67% of VPA maxAllowed; memory is stickier, so the threshold is higher to avoid premature scale-out |
+
+Example HPA:
 
 ```yaml
 metrics:
@@ -260,13 +287,13 @@ metrics:
       name: cpu
       target:
         type: AverageValue
-        averageValue: "900m"   # ~50% of 1800m maxAllowed
+        averageValue: "900m"
   - type: Resource
     resource:
       name: memory
       target:
         type: AverageValue
-        averageValue: "1200Mi"  # ~67% of 1800Mi maxAllowed
+        averageValue: "1200Mi"
 behavior:
   scaleUp:
     stabilizationWindowSeconds: 30
@@ -310,8 +337,8 @@ hpa:
   targetType: Utilization   # or AverageValue
   averageUtilization: 50      # used when targetType == Utilization
   averageValue:              # used when targetType == AverageValue
-    cpu: "800m"
-    memory: "1200Mi"
+    cpu: "900m"               # 50% of default VPA maxAllowed (1800m)
+    memory: "1200Mi"          # ~67% of default VPA maxAllowed (1800Mi)
   metrics:                   # optional override list
   scaleDown:
     stabilizationSeconds: 300
@@ -389,7 +416,7 @@ spec:
 {{- end }}
 ```
 
-Proposed defaults in `values.yaml`:
+Proposed defaults in `values.yaml`, aligned with DNext resource defaults (`limits.cpu: 2000m`, `limits.memory: 2000Mi`, `requests.cpu: 20m`, `requests.memory: 500Mi`):
 
 ```yaml
 vpa:
@@ -401,11 +428,11 @@ vpa:
     - memory
   controlledValues: RequestsAndLimits
   minAllowed:
-    cpu: 100m
-    memory: 128Mi
+    cpu: 20m              # matches deployment request floor
+    memory: 500Mi         # matches deployment request floor
   maxAllowed:
-    cpu: 1800m
-    memory: 1800Mi
+    cpu: 1800m            # 90% of 2000m limit (10% headroom)
+    memory: 1800Mi        # 90% of 2000Mi limit (10% headroom)
 ```
 
 ### 7.3 Guard: do not allow `hpa.targetType: Utilization` when `vpa.enabled: true`
@@ -439,9 +466,12 @@ hpa:
 
 vpa:
   enabled: true
+  minAllowed:
+    cpu: 20m              # matches deployment request floor
+    memory: 500Mi         # matches deployment request floor
   maxAllowed:
-    cpu: 1800m
-    memory: 1800Mi
+    cpu: 1800m            # 90% of 2000m limit
+    memory: 1800Mi        # 90% of 2000Mi limit
 ```
 
 For the 72 services with `minReplicas: 1, maxReplicas: 1`, VPA can also be enabled safely with `InPlaceOrRecreate` because HPA cannot scale. However, `minReplicas: 1` should still be respected by VPA (`vpa.minReplicas: 1`) so the updater acts on single-replica workloads.
