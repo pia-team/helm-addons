@@ -1,7 +1,7 @@
 # test profile — stability over cost.
 #
 # Goals:
-#   - No surprise pod evictions (VPA in Initial / recommendation mode only)
+#   - No surprise pod evictions (VPA in InPlaceOrRecreate with moderate updater)
 #   - On-demand capacity, no spot interruptions
 #   - Karpenter scales down only when nodes are completely empty
 #   - Broader instance families for better scheduling headroom
@@ -17,11 +17,14 @@ karpenter_manifest_dir: karpenter/manifests/test
 karpenter_consolidation_policy: WhenEmpty
 karpenter_consolidate_after: 4h
 
+# Instance families: t3 for cost, m6a for non-burstable general-purpose
+# workloads. m6a (AMD EPYC Milan) is cheaper and faster than m5 in
+# eu-west-1, so it is the cost-optimized stability choice.
 karpenter_instance_types:
   - t3.large
   - t3.xlarge
-  - m5.large
-  - m5.xlarge
+  - m6a.large
+  - m6a.xlarge
 
 karpenter_cpu_limit: "50"
 karpenter_memory_limit: 200Gi

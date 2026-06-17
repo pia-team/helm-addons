@@ -22,14 +22,16 @@ spec:
           operator: In
           values: ["on-demand"]
 
-        # Broader mix than dev: include m5 for non-burstable workloads.
+        # Broader mix than dev: t3 for cost, m6a for non-burstable stability.
+        # m6a (AMD EPYC Milan) replaces m5: better price/performance in
+        # eu-west-1 while still being non-burstable x86.
         - key: node.kubernetes.io/instance-type
           operator: In
           values:
             - t3.large
             - t3.xlarge
-            - m5.large
-            - m5.xlarge
+            - m6a.large
+            - m6a.xlarge
 
       expireAfter: Never
 
