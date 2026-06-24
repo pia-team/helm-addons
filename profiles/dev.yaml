@@ -56,5 +56,10 @@ vpa_cpu_decay_half_life: 1h
 vpa_mem_decay_half_life: 4h
 vpa_recommender_interval: 30s
 
+# Recommendation floors (dev): let tiny idle workloads scale down far below the
+# chart defaults (15m / 100Mi); per-VPA minAllowed then governs per workload.
+vpa_min_cpu_millicores: "5"
+vpa_min_memory_mb: "16"
+
 # Goldilocks namespace label value for this profile
 goldilocks_vpa_update_mode: InPlaceOrRecreate

@@ -14,6 +14,10 @@ recommender:
     memory-histogram-decay-half-life: "{{ .Values.vpa_mem_decay_half_life }}"
     # How often the recommender refetches metrics / recomputes.
     recommender-interval: "{{ .Values.vpa_recommender_interval }}"
+    # Lower the recommendation floors so idle dev workloads can scale down well
+    # below the chart defaults (15m / 100Mi). Per-VPA minAllowed governs per workload.
+    pod-recommendation-min-cpu-millicores: "{{ .Values.vpa_min_cpu_millicores }}"
+    pod-recommendation-min-memory-mb: "{{ .Values.vpa_min_memory_mb }}"
   # Pin to managed nodes so the recommender is available before Karpenter
   # provisions any nodes.
   affinity:
