@@ -1,5 +1,10 @@
 recommender:
   enabled: true
+  extraArgs:
+    # Store memory recommendations rounded and with a binary suffix (Mi/Gi) so
+    # `kubectl get vpa` shows human-readable values instead of raw byte integers.
+    # Cluster-wide; rounds up (marginally higher recommendations).
+    humanize-memory: "true"
   # Pin to managed nodes so the recommender is available before Karpenter
   # provisions any nodes.
   affinity:
