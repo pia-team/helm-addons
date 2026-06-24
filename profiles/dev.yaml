@@ -41,7 +41,20 @@ vpa_min_replicas: "1"
 # Updater aggressiveness: low eviction-tolerance = act quickly and accept more
 # eviction pressure; short pod-lifetime threshold = resize young pods too.
 vpa_eviction_tolerance: "0.25"
-vpa_pod_lifetime_update_threshold: 1h
+vpa_pod_lifetime_update_threshold: 10m   # was 1h — resize in-bounds pods sooner
+
+# Updater speed (dev quick feedback): run the loop more often, act on smaller
+# recommendation diffs, and resize more pods per cycle.
+vpa_updater_interval: 30s
+vpa_pod_update_threshold: "0.05"
+vpa_eviction_rate_burst: "3"
+
+# Recommender responsiveness (dev): track recent load fast. CPU decays quickly
+# (compressible); memory decays slower (incompressible / OOM risk) but well below
+# the 24h default.
+vpa_cpu_decay_half_life: 1h
+vpa_mem_decay_half_life: 4h
+vpa_recommender_interval: 30s
 
 # Goldilocks namespace label value for this profile
 goldilocks_vpa_update_mode: InPlaceOrRecreate

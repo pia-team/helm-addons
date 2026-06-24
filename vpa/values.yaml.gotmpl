@@ -7,6 +7,13 @@ recommender:
     # (e.g. 63543705600m) on this version — upstream kubernetes/autoscaler#7770.
     # Rounding up adds <1Mi per container.
     round-memory-bytes: "1048576"
+    # Responsiveness (dev): shorten how long usage history is weighted so the
+    # recommendation tracks recent load quickly. CPU is compressible (throttle)
+    # so it can decay fast; memory is incompressible (OOM) so keep it longer.
+    cpu-histogram-decay-half-life: "{{ .Values.vpa_cpu_decay_half_life }}"
+    memory-histogram-decay-half-life: "{{ .Values.vpa_mem_decay_half_life }}"
+    # How often the recommender refetches metrics / recomputes.
+    recommender-interval: "{{ .Values.vpa_recommender_interval }}"
   # Pin to managed nodes so the recommender is available before Karpenter
   # provisions any nodes.
   affinity:
@@ -37,6 +44,14 @@ updater:
     # vpa-updater flag (1.6.0) and caused an ~8-day CrashLoopBackOff; corrected
     # to the real flag below.
     in-recommendation-bounds-eviction-lifetime-threshold: "{{ .Values.vpa_pod_lifetime_update_threshold }}"
+    # Speed (dev): run the updater loop more often, act on smaller recommendation
+    # diffs, and resize more pods per cycle for quicker right-sizing.
+    updater-interval: "{{ .Values.vpa_updater_interval }}"
+    pod-update-threshold: "{{ .Values.vpa_pod_update_threshold }}"
+    eviction-rate-burst: "{{ .Values.vpa_eviction_rate_burst }}"
+    # ALPHA, dev-only: skip PodDisruptionBudget checks for pure in-place resizes
+    # (no eviction), so in-place updates aren't blocked.
+    in-place-skip-disruption-budget: "true"
   affinity:
     nodeAffinity:
       requiredDuringSchedulingIgnoredDuringExecution:
