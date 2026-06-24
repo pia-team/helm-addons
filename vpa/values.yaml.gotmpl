@@ -28,9 +28,13 @@ updater:
     # to evict a pod for resize. Lower = more aggressive; higher = more stable.
     # Driven by the active profile (dev/test/prod).
     eviction-tolerance: "{{ .Values.vpa_eviction_tolerance }}"
-    # Minimum age of a pod before the updater will resize it. Short in dev for
-    # quick feedback; long in prod for stability.
-    pod-lifetime-update-threshold: "{{ .Values.vpa_pod_lifetime_update_threshold }}"
+    # Pods living at least this long can be evicted for resize even if their
+    # request is already within the recommended [min..max] bounds. Lower = resize
+    # sooner (dev quick feedback); higher = more stable (prod). Profile-driven.
+    # NOTE: the previous key `pod-lifetime-update-threshold` is NOT a valid
+    # vpa-updater flag (1.6.0) and caused an ~8-day CrashLoopBackOff; corrected
+    # to the real flag below.
+    in-recommendation-bounds-eviction-lifetime-threshold: "{{ .Values.vpa_pod_lifetime_update_threshold }}"
   affinity:
     nodeAffinity:
       requiredDuringSchedulingIgnoredDuringExecution:
