@@ -32,3 +32,12 @@ spec:
   # Note: kubernetes.io/cluster/* tags are reserved and managed by Karpenter — do not set them here.
   tags:
     karpenter.sh/discovery: eks-karpenter-vpa
+
+  # Pod density (P4): with VPC CNI prefix delegation enabled on the aws-node DaemonSet
+  # (ENABLE_PREFIX_DELEGATION=true), each ENI hands out /28 prefixes (16 IPs each), so a
+  # t3.medium can run far more than the default 17 pods. Karpenter does NOT infer this from
+  # the CNI, so we set maxPods explicitly. 110 is AWS's recommended kubelet cap for small
+  # (<=30 vCPU) instances. Applies to NEW nodes only; existing nodes keep their old max-pods
+  # until recycled (Karpenter consolidation / churn).
+  kubelet:
+    maxPods: 110
