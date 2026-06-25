@@ -1,0 +1,12 @@
+[12:32:35] === PHASE 0-idle ===
+[12:35:39] N_idle=7
+[12:35:39] === PHASE 1-normal ===
+[12:41:51] N_normal=7
+[12:41:51] === PHASE 2-high ===
+[12:54:35] N_high=6
+[12:54:35] === PHASE 3-rampdown ===
+[12:54:35] stop stress; observe HPA scale-in + Karpenter consolidation
+[13:08:03] N_recovered=7
+[13:08:03] SUMMARY nodes: idle=7 normal=7 high=6 recovered=7
+[13:08:03] TEARDOWN
+[13:08:05] outputs in /Users/merihilgor/Documents/repo/helm-addons/test-reports/voltran-scaling-20260625-123233
