@@ -14,14 +14,13 @@ spec:
   # Must match karpenter_node_role_name from karpenter/iam/ Terraform output.
   role: eks-karpenter-vpa-karpenter-node
 
-  # Karpenter discovers subnets and security groups via tags.
-  # The terraform-aws-modules/eks module sets kubernetes.io/cluster/<name>=owned
-  # on the node security group and the EKS-tagged subnets automatically.
-  # Subnets are tagged with karpenter.sh/discovery=<cluster-name> via Terraform
-  # (clusters/eks-karpenter-vpa/main.tf → vpc.private_subnet_tags).
+  # Use the dedicated /20 prefix-delegation pod subnets (10.1.16.0/20, 10.1.32.0/20),
+  # tagged eks-karpenter-vpa-pods in clusters/eks-karpenter-vpa/main.tf. These are
+  # large enough to hand out /28 prefixes; the default /24s (tag eks-karpenter-vpa)
+  # are too small/fragmented for prefix delegation.
   subnetSelectorTerms:
     - tags:
-        karpenter.sh/discovery: eks-karpenter-vpa
+        karpenter.sh/discovery: eks-karpenter-vpa-pods
 
   # Security group is discovered via the cluster-owned tag set by EKS itself.
   securityGroupSelectorTerms:
@@ -32,3 +31,9 @@ spec:
   # Note: kubernetes.io/cluster/* tags are reserved and managed by Karpenter — do not set them here.
   tags:
     karpenter.sh/discovery: eks-karpenter-vpa
+
+  # Pod density: VPC CNI prefix delegation is enabled on aws-node
+  # (ENABLE_PREFIX_DELEGATION=true) and these nodes run in the dedicated /20 pod
+  # subnets, so a t3.medium can run up to the kubelet cap of 110 pods (vs 17).
+  kubelet:
+    maxPods: 110
