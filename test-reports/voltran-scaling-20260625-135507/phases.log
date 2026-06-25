@@ -1,0 +1,11 @@
+[13:56:20] === PHASE 0-idle ===
+[13:59:25] N_idle=4
+[13:59:25] === PHASE 1-normal ===
+[14:05:33] N_normal=5
+[14:05:33] === PHASE 2-high ===
+[14:18:12] N_high=5
+[14:18:12] === PHASE 3-rampdown ===
+[14:31:39] N_recovered=5
+[14:31:39] SUMMARY nodes idle=4 normal=5 high_end=5 peak=5 recovered=5
+[14:31:39] TEARDOWN
+[14:31:41] outputs in /Users/merihilgor/Documents/repo/helm-addons/test-reports/voltran-scaling-20260625-135507

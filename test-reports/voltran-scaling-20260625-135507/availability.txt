@@ -1,0 +1,6 @@
+OVERALL: probes=1993 ok(200)=1910 success=95.835%
+per-phase:
+  0-idle       probes=181 ok=181 success=100.000%
+  1-normal     probes=359 ok=359 success=100.000%
+  2-high       probes=660 ok=656 success=99.394%
+  3-rampdown   probes=792 ok=713 success=90.025%

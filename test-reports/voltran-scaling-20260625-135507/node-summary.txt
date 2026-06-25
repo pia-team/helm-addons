@@ -1,0 +1,1 @@
+idle=4 normal=5 high_end=5 peak_high=5 recovered=5
